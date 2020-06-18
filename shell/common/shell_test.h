@@ -8,14 +8,19 @@
 #include <memory>
 
 #include "flutter/common/settings.h"
+#include "flutter/flow/layers/container_layer.h"
+#include "flutter/fml/build_config.h"
 #include "flutter/fml/macros.h"
+#include "flutter/fml/time/time_point.h"
 #include "flutter/lib/ui/window/platform_message.h"
+#include "flutter/shell/common/persistent_cache.h"
 #include "flutter/shell/common/run_configuration.h"
 #include "flutter/shell/common/shell.h"
+#include "flutter/shell/common/shell_test_external_view_embedder.h"
 #include "flutter/shell/common/thread_host.h"
-#include "flutter/shell/gpu/gpu_surface_gl_delegate.h"
+#include "flutter/shell/common/vsync_waiters_test.h"
+#include "flutter/testing/elf_loader.h"
 #include "flutter/testing/test_dart_native_resolver.h"
-#include "flutter/testing/test_gl_surface.h"
 #include "flutter/testing/thread_test.h"
 
 namespace flutter {
@@ -25,13 +30,20 @@ class ShellTest : public ThreadTest {
  public:
   ShellTest();
 
-  ~ShellTest();
-
   Settings CreateSettingsForFixture();
-  std::unique_ptr<Shell> CreateShell(Settings settings);
   std::unique_ptr<Shell> CreateShell(Settings settings,
-                                     TaskRunners task_runners);
+                                     bool simulate_vsync = false);
+  std::unique_ptr<Shell> CreateShell(
+      Settings settings,
+      TaskRunners task_runners,
+      bool simulate_vsync = false,
+      std::shared_ptr<ShellTestExternalViewEmbedder>
+          shell_test_external_view_embedder = nullptr);
+  void DestroyShell(std::unique_ptr<Shell> shell);
+  void DestroyShell(std::unique_ptr<Shell> shell, TaskRunners task_runners);
   TaskRunners GetTaskRunnersForFixture();
+
+  fml::TimePoint GetLatestFrameTargetTime(Shell* shell) const;
 
   void SendEnginePlatformMessage(Shell* shell,
                                  fml::RefPtr<PlatformMessage> message);
@@ -41,15 +53,48 @@ class ShellTest : public ThreadTest {
   static void PlatformViewNotifyCreated(
       Shell* shell);  // This creates the surface
   static void RunEngine(Shell* shell, RunConfiguration configuration);
+  static void RestartEngine(Shell* shell, RunConfiguration configuration);
 
-  static void PumpOneFrame(Shell* shell);
+  /// Issue as many VSYNC as needed to flush the UI tasks so far, and reset
+  /// the `will_draw_new_frame` to true.
+  static void VSyncFlush(Shell* shell, bool& will_draw_new_frame);
 
+  /// Given the root layer, this callback builds the layer tree to be rasterized
+  /// in PumpOneFrame.
+  using LayerTreeBuilder =
+      std::function<void(std::shared_ptr<ContainerLayer> root)>;
+  static void PumpOneFrame(Shell* shell,
+                           double width = 1,
+                           double height = 1,
+                           LayerTreeBuilder = {});
+  static void PumpOneFrame(Shell* shell,
+                           flutter::ViewportMetrics viewport_metrics,
+                           LayerTreeBuilder = {});
+  static void DispatchFakePointerData(Shell* shell);
+  static void DispatchPointerData(Shell* shell,
+                                  std::unique_ptr<PointerDataPacket> packet);
   // Declare |UnreportedTimingsCount|, |GetNeedsReportTimings| and
   // |SetNeedsReportTimings| inside |ShellTest| mainly for easier friend class
   // declarations as shell unit tests and Shell are in different name spaces.
 
   static bool GetNeedsReportTimings(Shell* shell);
   static void SetNeedsReportTimings(Shell* shell, bool value);
+
+  enum ServiceProtocolEnum {
+    kGetSkSLs,
+    kSetAssetBundlePath,
+    kRunInView,
+  };
+
+  // Helper method to test private method Shell::OnServiceProtocolGetSkSLs.
+  // (ShellTest is a friend class of Shell.) We'll also make sure that it is
+  // running on the correct task_runner.
+  static void OnServiceProtocol(
+      Shell* shell,
+      ServiceProtocolEnum some_protocol,
+      fml::RefPtr<fml::TaskRunner> task_runner,
+      const ServiceProtocol::Handler::ServiceProtocolMap& params,
+      rapidjson::Document& response);
 
   std::shared_ptr<txt::FontCollection> GetFontCollection(Shell* shell);
 
@@ -58,53 +103,15 @@ class ShellTest : public ThreadTest {
   // is unpredictive.
   static int UnreportedTimingsCount(Shell* shell);
 
- protected:
-  // |testing::ThreadTest|
-  void SetUp() override;
-
-  // |testing::ThreadTest|
-  void TearDown() override;
-
  private:
-  fml::UniqueFD assets_dir_;
-  std::shared_ptr<TestDartNativeResolver> native_resolver_;
-  std::unique_ptr<ThreadHost> thread_host_;
-
   void SetSnapshotsAndAssets(Settings& settings);
-};
 
-class ShellTestPlatformView : public PlatformView, public GPUSurfaceGLDelegate {
- public:
-  ShellTestPlatformView(PlatformView::Delegate& delegate,
-                        TaskRunners task_runners);
+  std::shared_ptr<TestDartNativeResolver> native_resolver_;
+  ThreadHost thread_host_;
+  fml::UniqueFD assets_dir_;
+  ELFAOTSymbols aot_symbols_;
 
-  ~ShellTestPlatformView() override;
-
- private:
-  TestGLSurface gl_surface_;
-
-  // |PlatformView|
-  std::unique_ptr<Surface> CreateRenderingSurface() override;
-
-  // |GPUSurfaceGLDelegate|
-  bool GLContextMakeCurrent() override;
-
-  // |GPUSurfaceGLDelegate|
-  bool GLContextClearCurrent() override;
-
-  // |GPUSurfaceGLDelegate|
-  bool GLContextPresent() override;
-
-  // |GPUSurfaceGLDelegate|
-  intptr_t GLContextFBO() const override;
-
-  // |GPUSurfaceGLDelegate|
-  GLProcResolver GetGLProcResolver() const override;
-
-  // |GPUSurfaceGLDelegate|
-  ExternalViewEmbedder* GetExternalViewEmbedder() override;
-
-  FML_DISALLOW_COPY_AND_ASSIGN(ShellTestPlatformView);
+  FML_DISALLOW_COPY_AND_ASSIGN(ShellTest);
 };
 
 }  // namespace testing

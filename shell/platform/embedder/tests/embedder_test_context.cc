@@ -4,8 +4,12 @@
 
 #include "flutter/shell/platform/embedder/tests/embedder_test_context.h"
 
+#include "flutter/fml/make_copyable.h"
+#include "flutter/fml/paths.h"
 #include "flutter/runtime/dart_vm.h"
 #include "flutter/shell/platform/embedder/tests/embedder_assertions.h"
+#include "flutter/testing/testing.h"
+#include "third_party/dart/runtime/bin/elf_loader.h"
 #include "third_party/skia/include/core/SkSurface.h"
 
 namespace flutter {
@@ -13,21 +17,10 @@ namespace testing {
 
 EmbedderTestContext::EmbedderTestContext(std::string assets_path)
     : assets_path_(std::move(assets_path)),
+      aot_symbols_(LoadELFSymbolFromFixturesIfNeccessary()),
       native_resolver_(std::make_shared<TestDartNativeResolver>()) {
-  auto assets_dir = fml::OpenDirectory(assets_path_.c_str(), false,
-                                       fml::FilePermission::kRead);
-  vm_snapshot_data_ =
-      fml::FileMapping::CreateReadOnly(assets_dir, "vm_snapshot_data");
-  isolate_snapshot_data_ =
-      fml::FileMapping::CreateReadOnly(assets_dir, "isolate_snapshot_data");
-
-  if (flutter::DartVM::IsRunningPrecompiledCode()) {
-    vm_snapshot_instructions_ =
-        fml::FileMapping::CreateReadExecute(assets_dir, "vm_snapshot_instr");
-    isolate_snapshot_instructions_ = fml::FileMapping::CreateReadExecute(
-        assets_dir, "isolate_snapshot_instr");
-  }
-
+  SetupAOTMappingsIfNecessary();
+  SetupAOTDataIfNecessary();
   isolate_create_callbacks_.push_back(
       [weak_resolver =
            std::weak_ptr<TestDartNativeResolver>{native_resolver_}]() {
@@ -38,6 +31,38 @@ EmbedderTestContext::EmbedderTestContext(std::string assets_path)
 }
 
 EmbedderTestContext::~EmbedderTestContext() = default;
+
+void EmbedderTestContext::SetupAOTMappingsIfNecessary() {
+  if (!DartVM::IsRunningPrecompiledCode()) {
+    return;
+  }
+  vm_snapshot_data_ =
+      std::make_unique<fml::NonOwnedMapping>(aot_symbols_.vm_snapshot_data, 0u);
+  vm_snapshot_instructions_ = std::make_unique<fml::NonOwnedMapping>(
+      aot_symbols_.vm_snapshot_instrs, 0u);
+  isolate_snapshot_data_ =
+      std::make_unique<fml::NonOwnedMapping>(aot_symbols_.vm_isolate_data, 0u);
+  isolate_snapshot_instructions_ = std::make_unique<fml::NonOwnedMapping>(
+      aot_symbols_.vm_isolate_instrs, 0u);
+}
+
+void EmbedderTestContext::SetupAOTDataIfNecessary() {
+  if (!DartVM::IsRunningPrecompiledCode()) {
+    return;
+  }
+  FlutterEngineAOTDataSource data_in = {};
+  FlutterEngineAOTData data_out = nullptr;
+
+  const auto elf_path =
+      fml::paths::JoinPaths({GetFixturesPath(), kAOTAppELFFileName});
+
+  data_in.type = kFlutterEngineAOTDataSourceTypeElfPath;
+  data_in.elf_path = elf_path.c_str();
+
+  ASSERT_EQ(FlutterEngineCreateAOTData(&data_in, &data_out), kSuccess);
+
+  aot_data_.reset(data_out);
+}
 
 const std::string& EmbedderTestContext::GetAssetsPath() const {
   return assets_path_;
@@ -58,6 +83,10 @@ const fml::Mapping* EmbedderTestContext::GetIsolateSnapshotData() const {
 const fml::Mapping* EmbedderTestContext::GetIsolateSnapshotInstructions()
     const {
   return isolate_snapshot_instructions_.get();
+}
+
+FlutterEngineAOTData EmbedderTestContext::GetAOTData() const {
+  return aot_data_.get();
 }
 
 void EmbedderTestContext::SetRootSurfaceTransformation(SkMatrix matrix) {
@@ -89,18 +118,18 @@ void EmbedderTestContext::AddNativeCallback(const char* name,
 }
 
 void EmbedderTestContext::SetSemanticsNodeCallback(
-    SemanticsNodeCallback update_semantics_node_callback) {
+    const SemanticsNodeCallback& update_semantics_node_callback) {
   update_semantics_node_callback_ = update_semantics_node_callback;
 }
 
 void EmbedderTestContext::SetSemanticsCustomActionCallback(
-    SemanticsActionCallback update_semantics_custom_action_callback) {
+    const SemanticsActionCallback& update_semantics_custom_action_callback) {
   update_semantics_custom_action_callback_ =
       update_semantics_custom_action_callback;
 }
 
 void EmbedderTestContext::SetPlatformMessageCallback(
-    std::function<void(const FlutterPlatformMessage*)> callback) {
+    const std::function<void(const FlutterPlatformMessage*)>& callback) {
   platform_message_callback_ = callback;
 }
 
@@ -195,12 +224,22 @@ EmbedderTestCompositor& EmbedderTestContext::GetCompositor() {
 }
 
 void EmbedderTestContext::SetNextSceneCallback(
-    NextSceneCallback next_scene_callback) {
+    const NextSceneCallback& next_scene_callback) {
   if (compositor_) {
     compositor_->SetNextSceneCallback(next_scene_callback);
     return;
   }
   next_scene_callback_ = next_scene_callback;
+}
+
+std::future<sk_sp<SkImage>> EmbedderTestContext::GetNextSceneImage() {
+  std::promise<sk_sp<SkImage>> promise;
+  auto future = promise.get_future();
+  SetNextSceneCallback(
+      fml::MakeCopyable([promise = std::move(promise)](auto image) mutable {
+        promise.set_value(image);
+      }));
+  return future;
 }
 
 bool EmbedderTestContext::SofwarePresent(sk_sp<SkImage> image) {
@@ -219,8 +258,9 @@ size_t EmbedderTestContext::GetSoftwareSurfacePresentCount() const {
   return software_surface_present_count_;
 }
 
+/// @note Procedure doesn't copy all closures.
 void EmbedderTestContext::FireRootSurfacePresentCallbackIfPresent(
-    std::function<sk_sp<SkImage>(void)> image_callback) {
+    const std::function<sk_sp<SkImage>(void)>& image_callback) {
   if (!next_scene_callback_) {
     return;
   }

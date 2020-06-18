@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @dart = 2.9
+
 part of dart.ui;
 
 /// A saved platform message for a channel with its callback.
@@ -13,8 +15,8 @@ class _StoredMessage {
   _StoredMessage(this._data, this._callback);
 
   /// Representation of the message's payload.
-  final ByteData _data;
-  ByteData get data => _data;
+  final ByteData? _data;
+  ByteData? get data => _data;
 
   /// Callback to be called when the message is received.
   final PlatformMessageResponseCallback _callback;
@@ -42,7 +44,7 @@ class _RingBuffer<T> {
 
   /// A callback that get's called when items are ejected from the [_RingBuffer]
   /// by way of an overflow or a resizing.
-  Function(T) _dropItemCallback;
+  Function(T)? _dropItemCallback;
   set dropItemCallback(Function(T) callback) {
     _dropItemCallback = callback;
   }
@@ -59,7 +61,7 @@ class _RingBuffer<T> {
   }
 
   /// Returns null when empty.
-  T pop() {
+  T? pop() {
     return _queue.isEmpty ? null : _queue.removeFirst();
   }
 
@@ -69,9 +71,7 @@ class _RingBuffer<T> {
     int result = 0;
     while (_queue.length > lengthLimit) {
       final T item = _queue.removeFirst();
-      if (_dropItemCallback != null) {
-        _dropItemCallback(item);
-      }
+      _dropItemCallback?.call(item);
       result += 1;
     }
     return result;
@@ -85,7 +85,7 @@ class _RingBuffer<T> {
 }
 
 /// Signature for [ChannelBuffers.drain].
-typedef DrainChannelCallback = Future<void> Function(ByteData, PlatformMessageResponseCallback);
+typedef DrainChannelCallback = Future<void> Function(ByteData?, PlatformMessageResponseCallback);
 
 /// Storage of channel messages until the channels are completely routed,
 /// i.e. when a message handler is attached to the channel on the framework side.
@@ -112,9 +112,11 @@ class ChannelBuffers {
   /// buffer size that will avoid any overflows.
   static const int kDefaultBufferSize = 1;
 
+  static const String kControlChannelName = 'dev.flutter/channel-buffers';
+
   /// A mapping between a channel name and its associated [_RingBuffer].
-  final Map<String, _RingBuffer<_StoredMessage>> _messages =
-    <String, _RingBuffer<_StoredMessage>>{};
+  final Map<String, _RingBuffer<_StoredMessage>?> _messages =
+    <String, _RingBuffer<_StoredMessage>?>{};
 
   _RingBuffer<_StoredMessage> _makeRingBuffer(int size) {
     final _RingBuffer<_StoredMessage> result = _RingBuffer<_StoredMessage>(size);
@@ -127,43 +129,43 @@ class ChannelBuffers {
   }
 
   /// Returns true on overflow.
-  bool push(String channel, ByteData data, PlatformMessageResponseCallback callback) {
-    _RingBuffer<_StoredMessage> queue = _messages[channel];
+  bool push(String channel, ByteData? data, PlatformMessageResponseCallback callback) {
+    _RingBuffer<_StoredMessage>? queue = _messages[channel];
     if (queue == null) {
       queue = _makeRingBuffer(kDefaultBufferSize);
       _messages[channel] = queue;
     }
     final bool didOverflow = queue.push(_StoredMessage(data, callback));
     if (didOverflow) {
-      // TODO(aaclarke): Update this message to include instructions on how to resize
+      // TODO(gaaclarke): Update this message to include instructions on how to resize
       // the buffer once that is available to users and print in all engine builds
       // after we verify that dropping messages isn't part of normal execution.
-      _printDebug('Overflow on channel: $channel.  '
-                  'Messages on this channel are being discarded in FIFO fashion.  '
+      _printDebug('Overflow on channel: $channel. '
+                  'Messages on this channel are being discarded in FIFO fashion. '
                   'The engine may not be running or you need to adjust '
-                  'the buffer size if of the channel.');
+                  'the buffer size of the channel.');
     }
     return didOverflow;
   }
 
   /// Returns null on underflow.
-  _StoredMessage _pop(String channel) {
-    final _RingBuffer<_StoredMessage> queue = _messages[channel];
-    final _StoredMessage result = queue?.pop();
+  _StoredMessage? _pop(String channel) {
+    final _RingBuffer<_StoredMessage>? queue = _messages[channel];
+    final _StoredMessage? result = queue?.pop();
     return result;
   }
 
   bool _isEmpty(String channel) {
-    final _RingBuffer<_StoredMessage> queue = _messages[channel];
-    return (queue == null) ? true : queue.isEmpty;
+    final _RingBuffer<_StoredMessage>? queue = _messages[channel];
+    return queue == null || queue.isEmpty;
   }
 
   /// Changes the capacity of the queue associated with the given channel.
   ///
   /// This could result in the dropping of messages if newSize is less
   /// than the current length of the queue.
-  void resize(String channel, int newSize) {
-    _RingBuffer<_StoredMessage> queue = _messages[channel];
+  void _resize(String channel, int newSize) {
+    _RingBuffer<_StoredMessage>? queue = _messages[channel];
     if (queue == null) {
       queue = _makeRingBuffer(newSize);
       _messages[channel] = queue;
@@ -181,8 +183,32 @@ class ChannelBuffers {
   /// (i.e. when a message handler is setup in the framework).
   Future<void> drain(String channel, DrainChannelCallback callback) async {
     while (!_isEmpty(channel)) {
-      final _StoredMessage message = _pop(channel);
+      final _StoredMessage message = _pop(channel)!;
       await callback(message.data, message.callback);
+    }
+  }
+
+  String _getString(ByteData data) {
+    final ByteBuffer buffer = data.buffer;
+    final Uint8List list = buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+    return utf8.decode(list);
+  }
+
+  /// Handle a control message.
+  ///
+  /// This is intended to be called by the platform messages dispatcher.
+  ///
+  /// Available messages:
+  /// - Name: resize
+  ///   Arity: 2
+  ///   Format: `resize\r<channel name>\r<new size>`
+  ///   Description: Allows you to set the size of a channel's buffer.
+  void handleMessage(ByteData data) {
+    final List<String> command = _getString(data).split('\r');
+    if (command.length == /*arity=*/2 + 1 && command[0] == 'resize') {
+      _resize(command[1], int.parse(command[2]));
+    } else {
+      throw Exception('Unrecognized command $command sent to $kControlChannelName.');
     }
   }
 }

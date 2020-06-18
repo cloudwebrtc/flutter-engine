@@ -14,7 +14,6 @@
 #include "flutter/fml/macros.h"
 #include "flutter/fml/memory/ref_counted.h"
 #include "flutter/fml/synchronization/shared_mutex.h"
-#include "flutter/fml/synchronization/thread_annotations.h"
 #include "flutter/fml/wakeable.h"
 
 namespace fml {
@@ -79,7 +78,7 @@ class MessageLoopTaskQueues
   // Tasks methods.
 
   void RegisterTask(TaskQueueId queue_id,
-                    fml::closure task,
+                    const fml::closure& task,
                     fml::TimePoint target_time);
 
   bool HasPendingTasks(TaskQueueId queue_id) const;
@@ -94,7 +93,7 @@ class MessageLoopTaskQueues
 
   void AddTaskObserver(TaskQueueId queue_id,
                        intptr_t key,
-                       fml::closure callback);
+                       const fml::closure& callback);
 
   void RemoveTaskObserver(TaskQueueId queue_id, intptr_t key);
 
@@ -128,30 +127,24 @@ class MessageLoopTaskQueues
  private:
   class MergedQueuesRunner;
 
-  using Mutexes = std::vector<std::unique_ptr<std::mutex>>;
-
   MessageLoopTaskQueues();
 
   ~MessageLoopTaskQueues();
 
   void WakeUpUnlocked(TaskQueueId queue_id, fml::TimePoint time) const;
 
-  std::mutex& GetMutex(TaskQueueId queue_id) const;
-
   bool HasPendingTasksUnlocked(TaskQueueId queue_id) const;
 
-  const DelayedTask& PeekNextTaskUnlocked(TaskQueueId queue_id,
+  const DelayedTask& PeekNextTaskUnlocked(TaskQueueId owner,
                                           TaskQueueId& top_queue_id) const;
 
   fml::TimePoint GetNextWakeTimeUnlocked(TaskQueueId queue_id) const;
 
   static std::mutex creation_mutex_;
-  static fml::RefPtr<MessageLoopTaskQueues> instance_
-      FML_GUARDED_BY(creation_mutex_);
+  static fml::RefPtr<MessageLoopTaskQueues> instance_;
 
-  std::unique_ptr<fml::SharedMutex> queue_meta_mutex_;
+  mutable std::mutex queue_mutex_;
   std::map<TaskQueueId, std::unique_ptr<TaskQueueEntry>> queue_entries_;
-  std::map<TaskQueueId, std::unique_ptr<std::mutex>> queue_locks_;
 
   size_t task_queue_id_counter_;
 

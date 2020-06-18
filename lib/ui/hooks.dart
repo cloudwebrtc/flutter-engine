@@ -4,17 +4,9 @@
 
 // TODO(dnfield): Remove unused_import ignores when https://github.com/dart-lang/sdk/issues/35164 is resolved.
 
+// @dart = 2.9
+
 part of dart.ui;
-
-// ignore: unused_element
-String _decodeUTF8(ByteData message) {
-  return message != null ? utf8.decoder.convert(message.buffer.asUint8List()) : null;
-}
-
-// ignore: unused_element
-dynamic _decodeJSON(String message) {
-  return message != null ? json.decode(message) : null;
-}
 
 @pragma('vm:entry-point')
 // ignore: unused_element
@@ -63,9 +55,9 @@ void _updateWindowMetrics(
   _invoke(window.onMetricsChanged, window._onMetricsChangedZone);
 }
 
-typedef _LocaleClosure = String Function();
+typedef _LocaleClosure = String? Function();
 
-String _localeClosure() {
+String? _localeClosure() {
   if (window.locale == null) {
     return null;
   }
@@ -74,37 +66,54 @@ String _localeClosure() {
 
 @pragma('vm:entry-point')
 // ignore: unused_element
-_LocaleClosure _getLocaleClosure() => _localeClosure;
+_LocaleClosure? _getLocaleClosure() => _localeClosure;
 
 @pragma('vm:entry-point')
 // ignore: unused_element
 void _updateLocales(List<String> locales) {
   const int stringsPerLocale = 4;
   final int numLocales = locales.length ~/ stringsPerLocale;
-  window._locales = List<Locale>(numLocales);
+  final List<Locale> newLocales = <Locale>[];
   for (int localeIndex = 0; localeIndex < numLocales; localeIndex++) {
     final String countryCode = locales[localeIndex * stringsPerLocale + 1];
     final String scriptCode = locales[localeIndex * stringsPerLocale + 2];
 
-    window._locales[localeIndex] = Locale.fromSubtags(
+    newLocales.add(Locale.fromSubtags(
       languageCode: locales[localeIndex * stringsPerLocale],
       countryCode: countryCode.isEmpty ? null : countryCode,
       scriptCode: scriptCode.isEmpty ? null : scriptCode,
-    );
+    ));
   }
+  window._locales = newLocales;
   _invoke(window.onLocaleChanged, window._onLocaleChangedZone);
 }
 
 @pragma('vm:entry-point')
 // ignore: unused_element
+void _updatePlatformResolvedLocale(List<String> localeData) {
+  if (localeData.length != 4) {
+    return;
+  }
+  final String countryCode = localeData[1];
+  final String scriptCode = localeData[2];
+
+  window._platformResolvedLocale = Locale.fromSubtags(
+    languageCode: localeData[0],
+    countryCode: countryCode.isEmpty ? null : countryCode,
+    scriptCode: scriptCode.isEmpty ? null : scriptCode,
+  );
+}
+
+@pragma('vm:entry-point')
+// ignore: unused_element
 void _updateUserSettingsData(String jsonData) {
-  final Map<String, dynamic> data = json.decode(jsonData);
+  final Map<String, dynamic> data = json.decode(jsonData) as Map<String, dynamic>;
   if (data.isEmpty) {
     return;
   }
-  _updateTextScaleFactor(data['textScaleFactor'].toDouble());
-  _updateAlwaysUse24HourFormat(data['alwaysUse24HourFormat']);
-  _updatePlatformBrightness(data['platformBrightness']);
+  _updateTextScaleFactor((data['textScaleFactor'] as num).toDouble());
+  _updateAlwaysUse24HourFormat(data['alwaysUse24HourFormat'] as bool);
+  _updatePlatformBrightness(data['platformBrightness'] as String);
 }
 
 @pragma('vm:entry-point')
@@ -145,23 +154,32 @@ void _updateAccessibilityFeatures(int values) {
   if (newFeatures == window._accessibilityFeatures)
     return;
   window._accessibilityFeatures = newFeatures;
-  _invoke(window.onAccessibilityFeaturesChanged, window._onAccessibilityFlagsChangedZone);
+  _invoke(window.onAccessibilityFeaturesChanged, window._onAccessibilityFeaturesChangedZone);
 }
 
 @pragma('vm:entry-point')
-void _dispatchPlatformMessage(String name, ByteData data, int responseId) {
-  if (window.onPlatformMessage != null) {
-    _invoke3<String, ByteData, PlatformMessageResponseCallback>(
+// ignore: unused_element
+void _dispatchPlatformMessage(String name, ByteData? data, int responseId) {
+  if (name == ChannelBuffers.kControlChannelName) {
+    try {
+      channelBuffers.handleMessage(data!);
+    } catch (ex) {
+      _printDebug('Message to "$name" caused exception $ex');
+    } finally {
+      window._respondToPlatformMessage(responseId, null);
+    }
+  } else if (window.onPlatformMessage != null) {
+    _invoke3<String, ByteData?, PlatformMessageResponseCallback>(
       window.onPlatformMessage,
       window._onPlatformMessageZone,
       name,
       data,
-      (ByteData responseData) {
+      (ByteData? responseData) {
         window._respondToPlatformMessage(responseId, responseData);
       },
     );
   } else {
-    channelBuffers.push(name, data, (ByteData responseData) {
+    channelBuffers.push(name, data, (ByteData? responseData) {
       window._respondToPlatformMessage(responseId, responseData);
     });
   }
@@ -176,12 +194,12 @@ void _dispatchPointerDataPacket(ByteData packet) {
 
 @pragma('vm:entry-point')
 // ignore: unused_element
-void _dispatchSemanticsAction(int id, int action, ByteData args) {
-  _invoke3<int, SemanticsAction, ByteData>(
+void _dispatchSemanticsAction(int id, int action, ByteData? args) {
+  _invoke3<int, SemanticsAction, ByteData?>(
     window.onSemanticsAction,
     window._onSemanticsActionZone,
     id,
-    SemanticsAction.values[action],
+    SemanticsAction.values[action]!,
     args,
   );
 }
@@ -220,7 +238,7 @@ void _runMainZoned(Function startMainIsolateFunction,
                    Function userMainFunction,
                    List<String> args) {
   startMainIsolateFunction((){
-    runZoned<void>(() {
+    runZonedGuarded<void>(() {
       if (userMainFunction is _BinaryFunction) {
         // This seems to be undocumented but supported by the command line VM.
         // Let's do the same in case old entry-points are ported to Flutter.
@@ -230,7 +248,7 @@ void _runMainZoned(Function startMainIsolateFunction,
       } else {
         userMainFunction();
       }
-    }, onError: (Object error, StackTrace stackTrace) {
+    }, (Object error, StackTrace stackTrace) {
       _reportUnhandledException(error.toString(), stackTrace.toString());
     });
   }, null);
@@ -239,11 +257,11 @@ void _runMainZoned(Function startMainIsolateFunction,
 void _reportUnhandledException(String error, String stackTrace) native 'Window_reportUnhandledException';
 
 /// Invokes [callback] inside the given [zone].
-void _invoke(void callback(), Zone zone) {
+void _invoke(void callback()?, Zone zone) {
   if (callback == null)
     return;
 
-  assert(zone != null);
+  assert(zone != null); // ignore: unnecessary_null_comparison
 
   if (identical(zone, Zone.current)) {
     callback();
@@ -253,11 +271,11 @@ void _invoke(void callback(), Zone zone) {
 }
 
 /// Invokes [callback] inside the given [zone] passing it [arg].
-void _invoke1<A>(void callback(A a), Zone zone, A arg) {
+void _invoke1<A>(void callback(A a)?, Zone zone, A arg) {
   if (callback == null)
     return;
 
-  assert(zone != null);
+  assert(zone != null); // ignore: unnecessary_null_comparison
 
   if (identical(zone, Zone.current)) {
     callback(arg);
@@ -266,27 +284,12 @@ void _invoke1<A>(void callback(A a), Zone zone, A arg) {
   }
 }
 
-/// Invokes [callback] inside the given [zone] passing it [arg1] and [arg2].
-// ignore: unused_element
-void _invoke2<A1, A2>(void callback(A1 a1, A2 a2), Zone zone, A1 arg1, A2 arg2) {
+/// Invokes [callback] inside the given [zone] passing it [arg1], [arg2], and [arg3].
+void _invoke3<A1, A2, A3>(void callback(A1 a1, A2 a2, A3 a3)?, Zone zone, A1 arg1, A2 arg2, A3 arg3) {
   if (callback == null)
     return;
 
-  assert(zone != null);
-
-  if (identical(zone, Zone.current)) {
-    callback(arg1, arg2);
-  } else {
-    zone.runBinaryGuarded<A1, A2>(callback, arg1, arg2);
-  }
-}
-
-/// Invokes [callback] inside the given [zone] passing it [arg1], [arg2] and [arg3].
-void _invoke3<A1, A2, A3>(void callback(A1 a1, A2 a2, A3 a3), Zone zone, A1 arg1, A2 arg2, A3 arg3) {
-  if (callback == null)
-    return;
-
-  assert(zone != null);
+  assert(zone != null); // ignore: unnecessary_null_comparison
 
   if (identical(zone, Zone.current)) {
     callback(arg1, arg2, arg3);
@@ -300,27 +303,32 @@ void _invoke3<A1, A2, A3>(void callback(A1 a1, A2 a2, A3 a3), Zone zone, A1 arg1
 // If this value changes, update the encoding code in the following files:
 //
 //  * pointer_data.cc
-//  * FlutterView.java
-const int _kPointerDataFieldCount = 24;
+//  * pointers.dart
+//  * AndroidTouchProcessor.java
+const int _kPointerDataFieldCount = 28;
 
 PointerDataPacket _unpackPointerDataPacket(ByteData packet) {
   const int kStride = Int64List.bytesPerElement;
   const int kBytesPerPointerData = _kPointerDataFieldCount * kStride;
   final int length = packet.lengthInBytes ~/ kBytesPerPointerData;
   assert(length * kBytesPerPointerData == packet.lengthInBytes);
-  final List<PointerData> data = List<PointerData>(length);
+  final List<PointerData> data = <PointerData>[];
   for (int i = 0; i < length; ++i) {
     int offset = i * _kPointerDataFieldCount;
-    data[i] = PointerData(
+    data.add(PointerData(
       timeStamp: Duration(microseconds: packet.getInt64(kStride * offset++, _kFakeHostEndian)),
       change: PointerChange.values[packet.getInt64(kStride * offset++, _kFakeHostEndian)],
       kind: PointerDeviceKind.values[packet.getInt64(kStride * offset++, _kFakeHostEndian)],
       signalKind: PointerSignalKind.values[packet.getInt64(kStride * offset++, _kFakeHostEndian)],
       device: packet.getInt64(kStride * offset++, _kFakeHostEndian),
+      pointerIdentifier: packet.getInt64(kStride * offset++, _kFakeHostEndian),
       physicalX: packet.getFloat64(kStride * offset++, _kFakeHostEndian),
       physicalY: packet.getFloat64(kStride * offset++, _kFakeHostEndian),
+      physicalDeltaX: packet.getFloat64(kStride * offset++, _kFakeHostEndian),
+      physicalDeltaY: packet.getFloat64(kStride * offset++, _kFakeHostEndian),
       buttons: packet.getInt64(kStride * offset++, _kFakeHostEndian),
       obscured: packet.getInt64(kStride * offset++, _kFakeHostEndian) != 0,
+      synthesized: packet.getInt64(kStride * offset++, _kFakeHostEndian) != 0,
       pressure: packet.getFloat64(kStride * offset++, _kFakeHostEndian),
       pressureMin: packet.getFloat64(kStride * offset++, _kFakeHostEndian),
       pressureMax: packet.getFloat64(kStride * offset++, _kFakeHostEndian),
@@ -336,7 +344,7 @@ PointerDataPacket _unpackPointerDataPacket(ByteData packet) {
       platformData: packet.getInt64(kStride * offset++, _kFakeHostEndian),
       scrollDeltaX: packet.getFloat64(kStride * offset++, _kFakeHostEndian),
       scrollDeltaY: packet.getFloat64(kStride * offset++, _kFakeHostEndian)
-    );
+    ));
     assert(offset == (i + 1) * _kPointerDataFieldCount);
   }
   return PointerDataPacket(data: data);

@@ -40,6 +40,7 @@ std::string Settings::ToString() const {
   stream << "trace_systrace: " << trace_systrace << std::endl;
   stream << "dump_skp_on_shader_compilation: " << dump_skp_on_shader_compilation
          << std::endl;
+  stream << "cache_sksl: " << cache_sksl << std::endl;
   stream << "endless_trace_buffer: " << endless_trace_buffer << std::endl;
   stream << "enable_dart_profiling: " << enable_dart_profiling << std::endl;
   stream << "disable_dart_asserts: " << disable_dart_asserts << std::endl;
@@ -57,6 +58,7 @@ std::string Settings::ToString() const {
   stream << "assets_path: " << assets_path << std::endl;
   stream << "frame_rasterized_callback set: " << !!frame_rasterized_callback
          << std::endl;
+  stream << "old_gen_heap_size: " << old_gen_heap_size << std::endl;
   return stream.str();
 }
 

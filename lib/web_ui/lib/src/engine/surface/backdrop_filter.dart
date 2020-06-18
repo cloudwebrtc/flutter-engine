@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @dart = 2.6
 part of engine;
 
 /// A surface that applies an image filter to background.
@@ -10,7 +11,7 @@ class PersistedBackdropFilter extends PersistedContainerSurface
   PersistedBackdropFilter(PersistedBackdropFilter oldLayer, this.filter)
       : super(oldLayer);
 
-  final ui.ImageFilter filter;
+  final EngineImageFilter filter;
 
   /// The dedicated child container element that's separate from the
   /// [rootElement] is used to host child in front of [filterElement] that
@@ -19,14 +20,11 @@ class PersistedBackdropFilter extends PersistedContainerSurface
   html.Element get childContainer => _childContainer;
   html.Element _childContainer;
   html.Element _filterElement;
+  ui.Rect _activeClipBounds;
   // Cached inverted transform for _transform.
   Matrix4 _invertedTransform;
   // Reference to transform last used to cache [_invertedTransform].
   Matrix4 _previousTransform;
-
-  @override
-  Matrix4 get localTransformInverse =>
-      _localTransformInverse ??= Matrix4.identity();
 
   @override
   void adoptElements(PersistedBackdropFilter oldSurface) {
@@ -68,19 +66,45 @@ class PersistedBackdropFilter extends PersistedContainerSurface
       _invertedTransform = Matrix4.inverted(_transform);
       _previousTransform = _transform;
     }
-    final ui.Rect rect = transformLTRB(_invertedTransform, 0, 0,
-        ui.window.physicalSize.width, ui.window.physicalSize.height);
+    // https://api.flutter.dev/flutter/widgets/BackdropFilter-class.html
+    // Defines the effective area as the parent/ancestor clip or if not
+    // available, the whole screen.
+    //
+    // The CSS backdrop-filter will use isolation boundary defined in
+    // https://drafts.fxtf.org/filter-effects-2/#BackdropFilterProperty
+    // Therefore we need to use parent clip element bounds for
+    // backdrop boundary.
+    final double dpr = ui.window.devicePixelRatio;
+    ui.Rect rect = transformRect(_invertedTransform, ui.Rect.fromLTRB(0, 0,
+        ui.window.physicalSize.width * dpr,
+        ui.window.physicalSize.height * dpr));
+    double left = rect.left;
+    double top = rect.top;
+    double width = rect.width;
+    double height = rect.height;
+    PersistedContainerSurface parentSurface = parent;
+    while (parentSurface != null) {
+      if (parentSurface.isClipping) {
+        _activeClipBounds = parentSurface._localClipBounds;
+        left = _activeClipBounds.left;
+        top = _activeClipBounds.top;
+        width = _activeClipBounds.width;
+        height = _activeClipBounds.height;
+        break;
+      }
+      parentSurface = parentSurface.parent;
+    }
     final html.CssStyleDeclaration filterElementStyle = _filterElement.style;
     filterElementStyle
       ..position = 'absolute'
-      ..transform = 'translate(${rect.left}px, ${rect.top}px)'
-      ..width = '${rect.width}px'
-      ..height = '${rect.height}px';
-    if (browserEngine == BrowserEngine.blink) {
-      // For Chrome render transparent black background.
+      ..left = '${left}px'
+      ..top = '${top}px'
+      ..width = '${width}px'
+      ..height = '${height}px';
+    if (browserEngine == BrowserEngine.firefox) {
+      // For FireFox for now render transparent black background.
       // TODO(flutter_web): Switch code to use filter when
-      // https://bugs.chromium.org/p/chromium/issues/detail?id=497522#c213
-      // is fixed.
+      // See https://caniuse.com/#feat=css-backdrop-filter.
       filterElementStyle
         ..backgroundColor = '#000'
         ..opacity = '0.2';
@@ -88,8 +112,11 @@ class PersistedBackdropFilter extends PersistedContainerSurface
       // CSS uses pixel radius for blur. Flutter & SVG use sigma parameters. For
       // Gaussian blur with standard deviation (normal distribution),
       // the blur will fall within 2 * sigma pixels.
-      domRenderer.setElementStyle(_filterElement, 'backdrop-filter',
-          'blur(${math.max(filter.sigmaX, filter.sigmaY) * 2}px)');
+      if (browserEngine == BrowserEngine.webkit) {
+        domRenderer.setElementStyle(_filterElement, '-webkit-backdrop-filter',
+            _imageFilterToCss(filter));
+      }
+      domRenderer.setElementStyle(_filterElement, 'backdrop-filter', _imageFilterToCss(filter));
     }
   }
 
@@ -98,6 +125,28 @@ class PersistedBackdropFilter extends PersistedContainerSurface
     super.update(oldSurface);
     if (filter != oldSurface.filter) {
       apply();
+    } else {
+      _checkForUpdatedAncestorClipElement();
     }
+  }
+
+  void _checkForUpdatedAncestorClipElement() {
+    // If parent clip element has moved, adjust bounds.
+    PersistedContainerSurface parentSurface = parent;
+    while (parentSurface != null) {
+      if (parentSurface.isClipping) {
+        if (parentSurface._localClipBounds != _activeClipBounds) {
+          apply();
+        }
+        break;
+      }
+      parentSurface = parentSurface.parent;
+    }
+  }
+
+  @override
+  void retain() {
+    super.retain();
+    _checkForUpdatedAncestorClipElement();
   }
 }

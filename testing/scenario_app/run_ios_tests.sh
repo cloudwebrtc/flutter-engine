@@ -15,13 +15,14 @@ fi
 
 cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd
 
+# Delete after LUCI push.
 ./compile_ios_jit.sh ../../../out/host_debug_unopt ../../../out/$FLUTTER_ENGINE/clang_x64
 
 pushd ios/Scenarios
 
 set -o pipefail && xcodebuild -sdk iphonesimulator \
   -scheme Scenarios \
-  -destination 'platform=iOS Simulator,name=iPhone SE' \
+  -destination 'platform=iOS Simulator,name=iPhone 8' \
   test \
   FLUTTER_ENGINE=$FLUTTER_ENGINE | $PRETTY
 

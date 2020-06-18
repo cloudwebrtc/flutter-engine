@@ -6,12 +6,12 @@
 #define FLUTTER_FML_CONCURRENT_MESSAGE_LOOP_H_
 
 #include <condition_variable>
+#include <map>
 #include <queue>
 #include <thread>
 
 #include "flutter/fml/closure.h"
 #include "flutter/fml/macros.h"
-#include "flutter/fml/synchronization/thread_annotations.h"
 
 namespace fml {
 
@@ -31,6 +31,8 @@ class ConcurrentMessageLoop
 
   void Terminate();
 
+  void PostTaskToAllWorkers(fml::closure task);
+
  private:
   friend ConcurrentTaskRunner;
 
@@ -39,13 +41,19 @@ class ConcurrentMessageLoop
   std::mutex tasks_mutex_;
   std::condition_variable tasks_condition_;
   std::queue<fml::closure> tasks_;
+  std::vector<std::thread::id> worker_thread_ids_;
+  std::map<std::thread::id, std::vector<fml::closure>> thread_tasks_;
   bool shutdown_ = false;
 
   ConcurrentMessageLoop(size_t worker_count);
 
   void WorkerMain();
 
-  void PostTask(fml::closure task);
+  void PostTask(const fml::closure& task);
+
+  bool HasThreadTasksLocked() const;
+
+  std::vector<fml::closure> GetThreadTasksLocked();
 
   FML_DISALLOW_COPY_AND_ASSIGN(ConcurrentMessageLoop);
 };
@@ -56,7 +64,7 @@ class ConcurrentTaskRunner {
 
   ~ConcurrentTaskRunner();
 
-  void PostTask(fml::closure task);
+  void PostTask(const fml::closure& task);
 
  private:
   friend ConcurrentMessageLoop;

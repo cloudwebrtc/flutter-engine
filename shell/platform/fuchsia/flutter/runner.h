@@ -18,7 +18,6 @@
 #include "flutter/fml/macros.h"
 #include "lib/fidl/cpp/binding_set.h"
 #include "runtime/dart/utils/vmservice_object.h"
-#include "thread.h"
 
 namespace flutter_runner {
 
@@ -26,25 +25,15 @@ namespace flutter_runner {
 // their own threads.
 class Runner final : public fuchsia::sys::Runner {
  public:
-  explicit Runner(async::Loop* loop);
+  // Does not take ownership of loop or context.
+  Runner(async::Loop* loop, sys::ComponentContext* context);
 
   ~Runner();
 
  private:
   async::Loop* loop_;
 
-  struct ActiveApplication {
-    std::unique_ptr<Thread> thread;
-    std::unique_ptr<Application> application;
-
-    ActiveApplication(
-        std::pair<std::unique_ptr<Thread>, std::unique_ptr<Application>> pair)
-        : thread(std::move(pair.first)), application(std::move(pair.second)) {}
-
-    ActiveApplication() = default;
-  };
-
-  std::unique_ptr<sys::ComponentContext> context_;
+  sys::ComponentContext* context_;
   fidl::BindingSet<fuchsia::sys::Runner> active_applications_bindings_;
   std::unordered_map<const Application*, ActiveApplication>
       active_applications_;
@@ -75,6 +64,15 @@ class Runner final : public fuchsia::sys::Runner {
 #if !defined(DART_PRODUCT)
   void SetupTraceObserver();
 #endif  // !defined(DART_PRODUCT)
+
+  // Called from SetupICU, for testing only.  Returns false on error.
+  static bool SetupICUInternal();
+  // Called from SetupICU, for testing only.  Returns false on error.
+  static bool SetupTZDataInternal();
+#if defined(FRIEND_TEST)
+  FRIEND_TEST(RunnerTest, TZData);
+  FRIEND_TEST(RunnerTZDataTest, LoadsWithoutTZDataPresent);
+#endif  // defined(FRIEND_TEST)
 
   FML_DISALLOW_COPY_AND_ASSIGN(Runner);
 };

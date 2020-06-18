@@ -26,14 +26,6 @@
   return self;
 }
 
-- (void)makeCurrentContext {
-  [self.openGLContext makeCurrentContext];
-}
-
-- (void)onPresent {
-  [self.openGLContext flushBuffer];
-}
-
 #pragma mark - NSView overrides
 
 /**
@@ -54,6 +46,11 @@
 
 - (BOOL)acceptsFirstResponder {
   return YES;
+}
+
+- (void)viewDidChangeBackingProperties {
+  [super viewDidChangeBackingProperties];
+  [_reshapeListener viewDidReshape:self];
 }
 
 @end

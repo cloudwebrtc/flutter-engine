@@ -63,8 +63,7 @@ typedef enum {
 /// Must match the `SemanticsAction` enum in semantics.dart.
 typedef enum {
   /// The equivalent of a user briefly tapping the screen with the finger
-  /// without
-  /// moving it.
+  /// without moving it.
   kFlutterSemanticsActionTap = 1 << 0,
   /// The equivalent of a user pressing and holding the screen with the finger
   /// for a few seconds without moving it.
@@ -170,6 +169,10 @@ typedef enum {
   ///
   /// Only applicable when kFlutterSemanticsFlagIsTextField flag is on.
   kFlutterSemanticsFlagIsReadOnly = 1 << 20,
+  /// Whether the semantic node can hold the user's focus.
+  kFlutterSemanticsFlagIsFocusable = 1 << 21,
+  /// Whether the semantics node represents a link.
+  kFlutterSemanticsFlagIsLink = 1 << 22,
 } FlutterSemanticsFlag;
 
 typedef enum {
@@ -216,7 +219,8 @@ typedef enum {
 } FlutterOpenGLTargetType;
 
 typedef struct {
-  /// Target texture of the active texture unit (example GL_TEXTURE_2D).
+  /// Target texture of the active texture unit (example GL_TEXTURE_2D or
+  /// GL_TEXTURE_RECTANGLE).
   uint32_t target;
   /// The name of the texture.
   uint32_t name;
@@ -227,6 +231,14 @@ typedef struct {
   /// Callback invoked (on an engine managed thread) that asks the embedder to
   /// collect the texture.
   VoidCallback destruction_callback;
+  /// Optional parameters for texture height/width, default is 0, non-zero means
+  /// the texture has the specified width/height. Usually, when the texture type
+  /// is GL_TEXTURE_RECTANGLE, we need to specify the texture width/height to
+  /// tell the embedder to scale when rendering.
+  /// Width of the texture.
+  size_t width;
+  /// Height of the texture.
+  size_t height;
 } FlutterOpenGLTexture;
 
 typedef struct {
@@ -392,15 +404,21 @@ typedef struct {
   /// The size of this struct. Must be sizeof(FlutterPointerEvent).
   size_t struct_size;
   FlutterPointerPhase phase;
-  /// @attention     The timestamp must be specified in microseconds.
+  /// The timestamp at which the pointer event was generated. The timestamp
+  /// should be specified in microseconds and the clock should be the same as
+  /// that used by `FlutterEngineGetCurrentTime`.
   size_t timestamp;
+  /// The x coordinate of the pointer event in physical pixels.
   double x;
+  /// The y coordinate of the pointer event in physical pixels.
   double y;
   /// An optional device identifier. If this is not specified, it is assumed
   /// that the embedder has no multi-touch capability.
   int32_t device;
   FlutterPointerSignalKind signal_kind;
+  /// The x offset of the scroll in physical pixels.
   double scroll_delta_x;
+  /// The y offset of the scroll in physical pixels.
   double scroll_delta_y;
   /// The type of the device generating this event.
   /// Backwards compatibility note: If this is not set, the device will be
@@ -445,6 +463,29 @@ typedef struct {
   double right;
   double bottom;
 } FlutterRect;
+
+typedef struct {
+  double x;
+  double y;
+} FlutterPoint;
+
+typedef struct {
+  double width;
+  double height;
+} FlutterSize;
+
+typedef struct {
+  FlutterRect rect;
+  FlutterSize upper_left_corner_radius;
+  FlutterSize upper_right_corner_radius;
+  FlutterSize lower_right_corner_radius;
+  FlutterSize lower_left_corner_radius;
+} FlutterRoundedRect;
+
+/// The identifier of the platform view. This identifier is specified by the
+/// application when a platform view is added to the scene via the
+/// `SceneBuilder.addPlatformView` call.
+typedef int64_t FlutterPlatformViewIdentifier;
 
 /// `FlutterSemanticsNode` ID used as a sentinel to signal the end of a batch of
 /// semantics node updates.
@@ -517,6 +558,9 @@ typedef struct {
   /// Array of `FlutterSemanticsCustomAction` IDs associated with this node.
   /// Has length `custom_accessibility_actions_count`.
   const int32_t* custom_accessibility_actions;
+  /// Identifier of the platform view associated with this semantics node, or
+  /// zero if none.
+  FlutterPlatformViewIdentifier platform_view_id;
 } FlutterSemanticsNode;
 
 /// `FlutterSemanticsCustomAction` ID used as a sentinel to signal the end of a
@@ -591,14 +635,24 @@ typedef struct {
   ///
   /// @attention     This field is required.
   FlutterTaskRunnerPostTaskCallback post_task_callback;
+  /// A unique identifier for the task runner. If multiple task runners service
+  /// tasks on the same thread, their identifiers must match.
+  size_t identifier;
 } FlutterTaskRunnerDescription;
 
 typedef struct {
   /// The size of this struct. Must be sizeof(FlutterCustomTaskRunners).
   size_t struct_size;
   /// Specify the task runner for the thread on which the `FlutterEngineRun`
-  /// call is made.
+  /// call is made. The same task runner description can be specified for both
+  /// the render and platform task runners. This makes the Flutter engine use
+  /// the same thread for both task runners.
   const FlutterTaskRunnerDescription* platform_task_runner;
+  /// Specify the task runner for the thread on which the render tasks will be
+  /// run. The same task runner description can be specified for both the render
+  /// and platform task runners. This makes the Flutter engine use the same
+  /// thread for both task runners.
+  const FlutterTaskRunnerDescription* render_task_runner;
 } FlutterCustomTaskRunners;
 
 typedef struct {
@@ -631,10 +685,31 @@ typedef struct {
   VoidCallback destruction_callback;
 } FlutterSoftwareBackingStore;
 
-/// The identifier of the platform view. This identifier is specified by the
-/// application when a platform view is added to the scene via the
-/// `SceneBuilder.addPlatformView` call.
-typedef int64_t FlutterPlatformViewIdentifier;
+typedef enum {
+  /// Indicates that the Flutter application requested that an opacity be
+  /// applied to the platform view.
+  kFlutterPlatformViewMutationTypeOpacity,
+  /// Indicates that the Flutter application requested that the platform view be
+  /// clipped using a rectangle.
+  kFlutterPlatformViewMutationTypeClipRect,
+  /// Indicates that the Flutter application requested that the platform view be
+  /// clipped using a rounded rectangle.
+  kFlutterPlatformViewMutationTypeClipRoundedRect,
+  /// Indicates that the Flutter application requested that the platform view be
+  /// transformed before composition.
+  kFlutterPlatformViewMutationTypeTransformation,
+} FlutterPlatformViewMutationType;
+
+typedef struct {
+  /// The type of the mutation described by the subsequent union.
+  FlutterPlatformViewMutationType type;
+  union {
+    double opacity;
+    FlutterRect clip_rect;
+    FlutterRoundedRect clip_rounded_rect;
+    FlutterTransformation transformation;
+  };
+} FlutterPlatformViewMutation;
 
 typedef struct {
   /// The size of this struct. Must be sizeof(FlutterPlatformView).
@@ -643,6 +718,22 @@ typedef struct {
   /// application when a platform view is added to the scene via the
   /// `SceneBuilder.addPlatformView` call.
   FlutterPlatformViewIdentifier identifier;
+  /// The number of mutations to be applied to the platform view by the embedder
+  /// before on-screen composition.
+  size_t mutations_count;
+  /// The mutations to be applied by this platform view before it is composited
+  /// on-screen. The Flutter application may transform the platform view but
+  /// these transformations cannot be affected by the Flutter compositor because
+  /// it does not render platform views. Since the embedder is responsible for
+  /// composition of these views, it is also the embedder's responsibility to
+  /// affect the appropriate transformation.
+  ///
+  /// The mutations must be applied in order. The mutations done in the
+  /// collection don't take into account the device pixel ratio or the root
+  /// surface transformation. If these exist, the first mutation in the list
+  /// will be a transformation mutation to make sure subsequent mutations are in
+  /// the correct coordinate space.
+  const FlutterPlatformViewMutation** mutations;
 } FlutterPlatformView;
 
 typedef enum {
@@ -672,16 +763,6 @@ typedef struct {
     FlutterSoftwareBackingStore software;
   };
 } FlutterBackingStore;
-
-typedef struct {
-  double x;
-  double y;
-} FlutterPoint;
-
-typedef struct {
-  double width;
-  double height;
-} FlutterSize;
 
 typedef struct {
   /// The size of this struct. Must be sizeof(FlutterBackingStoreConfig).
@@ -755,6 +836,179 @@ typedef struct {
   /// onto the screen.
   FlutterLayersPresentCallback present_layers_callback;
 } FlutterCompositor;
+
+typedef struct {
+  /// This size of this struct. Must be sizeof(FlutterLocale).
+  size_t struct_size;
+  /// The language code of the locale. For example, "en". This is a required
+  /// field. The string must be null terminated. It may be collected after the
+  /// call to `FlutterEngineUpdateLocales`.
+  const char* language_code;
+  /// The country code of the locale. For example, "US". This is a an optional
+  /// field. The string must be null terminated if present. It may be collected
+  /// after the call to `FlutterEngineUpdateLocales`. If not present, a
+  /// `nullptr` may be specified.
+  const char* country_code;
+  /// The script code of the locale. This is a an optional field. The string
+  /// must be null terminated if present. It may be collected after the call to
+  /// `FlutterEngineUpdateLocales`. If not present, a `nullptr` may be
+  /// specified.
+  const char* script_code;
+  /// The variant code of the locale. This is a an optional field. The string
+  /// must be null terminated if present. It may be collected after the call to
+  /// `FlutterEngineUpdateLocales`. If not present, a `nullptr` may be
+  /// specified.
+  const char* variant_code;
+} FlutterLocale;
+
+typedef int64_t FlutterEngineDartPort;
+
+typedef enum {
+  kFlutterEngineDartObjectTypeNull,
+  kFlutterEngineDartObjectTypeBool,
+  kFlutterEngineDartObjectTypeInt32,
+  kFlutterEngineDartObjectTypeInt64,
+  kFlutterEngineDartObjectTypeDouble,
+  kFlutterEngineDartObjectTypeString,
+  /// The object will be made available to Dart code as an instance of
+  /// Uint8List.
+  kFlutterEngineDartObjectTypeBuffer,
+} FlutterEngineDartObjectType;
+
+typedef struct {
+  /// The size of this struct. Must be sizeof(FlutterEngineDartBuffer).
+  size_t struct_size;
+  /// An opaque baton passed back to the embedder when the
+  /// buffer_collect_callback is invoked. The engine does not interpret this
+  /// field in any way.
+  void* user_data;
+  /// This is an optional field.
+  ///
+  /// When specified, the engine will assume that the buffer is owned by the
+  /// embedder. When the data is no longer needed by any isolate, this callback
+  /// will be made on an internal engine managed thread. The embedder is free to
+  /// collect the buffer here. When this field is specified, it is the embedders
+  /// responsibility to keep the buffer alive and not modify it till this
+  /// callback is invoked by the engine. The user data specified in the callback
+  /// is the value of `user_data` field in this struct.
+  ///
+  /// When NOT specified, the VM creates an internal copy of the buffer. The
+  /// caller is free to modify the buffer as necessary or collect it immediately
+  /// after the call to `FlutterEnginePostDartObject`.
+  ///
+  /// @attention      The buffer_collect_callback is will only be invoked by the
+  ///                 engine when the `FlutterEnginePostDartObject` method
+  ///                 returns kSuccess. In case of non-successful calls to this
+  ///                 method, it is the embedders responsibility to collect the
+  ///                 buffer.
+  VoidCallback buffer_collect_callback;
+  /// A pointer to the bytes of the buffer. When the buffer is owned by the
+  /// embedder (by specifying the `buffer_collect_callback`), Dart code may
+  /// modify that embedder owned buffer. For this reason, it is important that
+  /// this buffer not have page protections that restrict writing to this
+  /// buffer.
+  uint8_t* buffer;
+  /// The size of the buffer.
+  size_t buffer_size;
+} FlutterEngineDartBuffer;
+
+/// This struct specifies the native representation of a Dart object that can be
+/// sent via a send port to any isolate in the VM that has the corresponding
+/// receive port.
+///
+/// All fields in this struct are copied out in the call to
+/// `FlutterEnginePostDartObject` and the caller is free to reuse or collect
+/// this struct after that call.
+typedef struct {
+  FlutterEngineDartObjectType type;
+  union {
+    bool bool_value;
+    int32_t int32_value;
+    int64_t int64_value;
+    double double_value;
+    /// A null terminated string. This string will be copied by the VM in the
+    /// call to `FlutterEnginePostDartObject` and must be collected by the
+    /// embedder after that call is made.
+    const char* string_value;
+    const FlutterEngineDartBuffer* buffer_value;
+  };
+} FlutterEngineDartObject;
+
+/// This enum allows embedders to determine the type of the engine thread in the
+/// FlutterNativeThreadCallback. Based on the thread type, the embedder may be
+/// able to tweak the thread priorities for optimum performance.
+typedef enum {
+  /// The Flutter Engine considers the thread on which the FlutterEngineRun call
+  /// is made to be the platform thread. There is only one such thread per
+  /// engine instance.
+  kFlutterNativeThreadTypePlatform,
+  /// This is the thread the Flutter Engine uses to execute rendering commands
+  /// based on the selected client rendering API. There is only one such thread
+  /// per engine instance.
+  kFlutterNativeThreadTypeRender,
+  /// This is a dedicated thread on which the root Dart isolate is serviced.
+  /// There is only one such thread per engine instance.
+  kFlutterNativeThreadTypeUI,
+  /// Multiple threads are used by the Flutter engine to perform long running
+  /// background tasks.
+  kFlutterNativeThreadTypeWorker,
+} FlutterNativeThreadType;
+
+/// A callback made by the engine in response to
+/// `FlutterEnginePostCallbackOnAllNativeThreads` on all internal thread.
+typedef void (*FlutterNativeThreadCallback)(FlutterNativeThreadType type,
+                                            void* user_data);
+
+/// AOT data source type.
+typedef enum {
+  kFlutterEngineAOTDataSourceTypeElfPath
+} FlutterEngineAOTDataSourceType;
+
+/// This struct specifies one of the various locations the engine can look for
+/// AOT data sources.
+typedef struct {
+  FlutterEngineAOTDataSourceType type;
+  union {
+    /// Absolute path to an ELF library file.
+    const char* elf_path;
+  };
+} FlutterEngineAOTDataSource;
+
+/// An opaque object that describes the AOT data that can be used to launch a
+/// FlutterEngine instance in AOT mode.
+typedef struct _FlutterEngineAOTData* FlutterEngineAOTData;
+
+//------------------------------------------------------------------------------
+/// @brief      Creates the necessary data structures to launch a Flutter Dart
+///             application in AOT mode. The data may only be collected after
+///             all FlutterEngine instances launched using this data have been
+///             terminated.
+///
+/// @param[in]  source    The source of the AOT data.
+/// @param[out] data_out  The AOT data on success. Unchanged on failure.
+///
+/// @return     Returns if the AOT data could be successfully resolved.
+///
+FLUTTER_EXPORT
+FlutterEngineResult FlutterEngineCreateAOTData(
+    const FlutterEngineAOTDataSource* source,
+    FlutterEngineAOTData* data_out);
+
+//------------------------------------------------------------------------------
+/// @brief      Collects the AOT data.
+///
+/// @warning    The embedder must ensure that this call is made only after all
+///             FlutterEngine instances launched using this data have been
+///             terminated, and that all of those instances were launched with
+///             the FlutterProjectArgs::shutdown_dart_vm_when_done flag set to
+///             true.
+///
+/// @param[in]  data   The data to collect.
+///
+/// @return     Returns if the AOT data was successfully collected.
+///
+FLUTTER_EXPORT
+FlutterEngineResult FlutterEngineCollectAOTData(FlutterEngineAOTData data);
 
 typedef struct {
   /// The size of this struct. Must be sizeof(FlutterProjectArgs).
@@ -873,7 +1127,8 @@ typedef struct {
   // which is used in `flutter::Settings` as `temp_directory_path`.
   const char* persistent_cache_path;
 
-  /// If true, we'll only read the existing cache, but not write new ones.
+  /// If true, the engine would only read the existing cache, but not write new
+  /// ones.
   bool is_persistent_cache_read_only;
 
   /// A callback that gets invoked by the engine when it attempts to wait for a
@@ -935,8 +1190,49 @@ typedef struct {
   /// absence, platforms views in the scene are ignored and Flutter renders to
   /// the root surface as normal.
   const FlutterCompositor* compositor;
+
+  /// Max size of the old gen heap for the Dart VM in MB, or 0 for unlimited, -1
+  /// for default value.
+  ///
+  /// See also:
+  /// https://github.com/dart-lang/sdk/blob/ca64509108b3e7219c50d6c52877c85ab6a35ff2/runtime/vm/flag_list.h#L150
+  int64_t dart_old_gen_heap_size;
+
+  /// The AOT data to be used in AOT operation.
+  ///
+  /// Embedders should instantiate and destroy this object via the
+  /// FlutterEngineCreateAOTData and FlutterEngineCollectAOTData methods.
+  ///
+  /// Embedders can provide either snapshot buffers or aot_data, but not both.
+  FlutterEngineAOTData aot_data;
 } FlutterProjectArgs;
 
+//------------------------------------------------------------------------------
+/// @brief      Initialize and run a Flutter engine instance and return a handle
+///             to it. This is a convenience method for the pair of calls to
+///             `FlutterEngineInitialize` and `FlutterEngineRunInitialized`.
+///
+/// @note       This method of running a Flutter engine works well except in
+///             cases where the embedder specifies custom task runners via
+///             `FlutterProjectArgs::custom_task_runners`. In such cases, the
+///             engine may need the embedder to post tasks back to it before
+///             `FlutterEngineRun` has returned. Embedders can only post tasks
+///             to the engine if they have a handle to the engine. In such
+///             cases, embedders are advised to get the engine handle via the
+///             `FlutterInitializeCall`. Then they can call
+///             `FlutterEngineRunInitialized` knowing that they will be able to
+///             service custom tasks on other threads with the engine handle.
+///
+/// @param[in]  version    The Flutter embedder API version. Must be
+///                        FLUTTER_ENGINE_VERSION.
+/// @param[in]  config     The renderer configuration.
+/// @param[in]  args       The Flutter project arguments.
+/// @param      user_data  A user data baton passed back to embedders in
+///                        callbacks.
+/// @param[out] engine_out The engine handle on successful engine creation.
+///
+/// @return     The result of the call to run the Flutter engine.
+///
 FLUTTER_EXPORT
 FlutterEngineResult FlutterEngineRun(size_t version,
                                      const FlutterRendererConfig* config,
@@ -945,9 +1241,80 @@ FlutterEngineResult FlutterEngineRun(size_t version,
                                      FLUTTER_API_SYMBOL(FlutterEngine) *
                                          engine_out);
 
+//------------------------------------------------------------------------------
+/// @brief      Shuts down a Flutter engine instance. The engine handle is no
+///             longer valid for any calls in the embedder API after this point.
+///             Making additional calls with this handle is undefined behavior.
+///
+/// @note       This de-initializes the Flutter engine instance (via an implicit
+///             call to `FlutterEngineDeinitialize`) if necessary.
+///
+/// @param[in]  engine  The Flutter engine instance to collect.
+///
+/// @return     The result of the call to shutdown the Flutter engine instance.
+///
 FLUTTER_EXPORT
 FlutterEngineResult FlutterEngineShutdown(FLUTTER_API_SYMBOL(FlutterEngine)
                                               engine);
+
+//------------------------------------------------------------------------------
+/// @brief      Initialize a Flutter engine instance. This does not run the
+///             Flutter application code till the `FlutterEngineRunInitialized`
+///             call is made. Besides Flutter application code, no tasks are
+///             scheduled on embedder managed task runners either. This allows
+///             embedders providing custom task runners to the Flutter engine to
+///             obtain a handle to the Flutter engine before the engine can post
+///             tasks on these task runners.
+///
+/// @param[in]  version    The Flutter embedder API version. Must be
+///                        FLUTTER_ENGINE_VERSION.
+/// @param[in]  config     The renderer configuration.
+/// @param[in]  args       The Flutter project arguments.
+/// @param      user_data  A user data baton passed back to embedders in
+///                        callbacks.
+/// @param[out] engine_out The engine handle on successful engine creation.
+///
+/// @return     The result of the call to initialize the Flutter engine.
+///
+FLUTTER_EXPORT
+FlutterEngineResult FlutterEngineInitialize(size_t version,
+                                            const FlutterRendererConfig* config,
+                                            const FlutterProjectArgs* args,
+                                            void* user_data,
+                                            FLUTTER_API_SYMBOL(FlutterEngine) *
+                                                engine_out);
+
+//------------------------------------------------------------------------------
+/// @brief      Stops running the Flutter engine instance. After this call, the
+///             embedder is also guaranteed that no more calls to post tasks
+///             onto custom task runners specified by the embedder are made. The
+///             Flutter engine handle still needs to be collected via a call to
+///             `FlutterEngineShutdown`.
+///
+/// @param[in]  engine    The running engine instance to de-initialize.
+///
+/// @return     The result of the call to de-initialize the Flutter engine.
+///
+FLUTTER_EXPORT
+FlutterEngineResult FlutterEngineDeinitialize(FLUTTER_API_SYMBOL(FlutterEngine)
+                                                  engine);
+
+//------------------------------------------------------------------------------
+/// @brief      Runs an initialized engine instance. An engine can be
+///             initialized via `FlutterEngineInitialize`. An initialized
+///             instance can only be run once. During and after this call,
+///             custom task runners supplied by the embedder are expected to
+///             start servicing tasks.
+///
+/// @param[in]  engine  An initialized engine instance that has not previously
+///                     been run.
+///
+/// @return     The result of the call to run the initialized Flutter
+///             engine instance.
+///
+FLUTTER_EXPORT
+FlutterEngineResult FlutterEngineRunInitialized(
+    FLUTTER_API_SYMBOL(FlutterEngine) engine);
 
 FLUTTER_EXPORT
 FlutterEngineResult FlutterEngineSendWindowMetricsEvent(
@@ -1284,7 +1651,7 @@ uint64_t FlutterEngineGetCurrentTime();
 ///             must only be made at the target time specified in that callback.
 ///             Running the task before that time is undefined behavior.
 ///
-/// @param[in]  engine     a running instance.
+/// @param[in]  engine     A running engine instance.
 /// @param[in]  task       the task handle.
 ///
 /// @return     The result of the call.
@@ -1293,6 +1660,135 @@ FLUTTER_EXPORT
 FlutterEngineResult FlutterEngineRunTask(FLUTTER_API_SYMBOL(FlutterEngine)
                                              engine,
                                          const FlutterTask* task);
+
+//------------------------------------------------------------------------------
+/// @brief      Notify a running engine instance that the locale has been
+///             updated. The preferred locale must be the first item in the list
+///             of locales supplied. The other entries will be used as a
+///             fallback.
+///
+/// @param[in]  engine         A running engine instance.
+/// @param[in]  locales        The updated locales in the order of preference.
+/// @param[in]  locales_count  The count of locales supplied.
+///
+/// @return     Whether the locale updates were applied.
+///
+FLUTTER_EXPORT
+FlutterEngineResult FlutterEngineUpdateLocales(FLUTTER_API_SYMBOL(FlutterEngine)
+                                                   engine,
+                                               const FlutterLocale** locales,
+                                               size_t locales_count);
+
+//------------------------------------------------------------------------------
+/// @brief      Returns if the Flutter engine instance will run AOT compiled
+///             Dart code. This call has no threading restrictions.
+///
+///             For embedder code that is configured for both AOT and JIT mode
+///             Dart execution based on the Flutter engine being linked to, this
+///             runtime check may be used to appropriately configure the
+///             `FlutterProjectArgs`. In JIT mode execution, the kernel
+///             snapshots must be present in the Flutter assets directory
+///             specified in the `FlutterProjectArgs`. For AOT execution, the
+///             fields `vm_snapshot_data`, `vm_snapshot_instructions`,
+///             `isolate_snapshot_data` and `isolate_snapshot_instructions`
+///             (along with their size fields) must be specified in
+///             `FlutterProjectArgs`.
+///
+/// @return     True, if AOT Dart code is run. JIT otherwise.
+///
+FLUTTER_EXPORT
+bool FlutterEngineRunsAOTCompiledDartCode(void);
+
+//------------------------------------------------------------------------------
+/// @brief      Posts a Dart object to specified send port. The corresponding
+///             receive port for send port can be in any isolate running in the
+///             VM. This isolate can also be the root isolate for an
+///             unrelated engine. The engine parameter is necessary only to
+///             ensure the call is not made when no engine (and hence no VM) is
+///             running.
+///
+///             Unlike the platform messages mechanism, there are no threading
+///             restrictions when using this API. Message can be posted on any
+///             thread and they will be made available to isolate on which the
+///             corresponding send port is listening.
+///
+///             However, it is the embedders responsibility to ensure that the
+///             call is not made during an ongoing call the
+///             `FlutterEngineDeinitialize` or `FlutterEngineShutdown` on
+///             another thread.
+///
+/// @param[in]  engine     A running engine instance.
+/// @param[in]  port       The send port to send the object to.
+/// @param[in]  object     The object to send to the isolate with the
+///                        corresponding receive port.
+///
+/// @return     If the message was posted to the send port.
+///
+FLUTTER_EXPORT
+FlutterEngineResult FlutterEnginePostDartObject(
+    FLUTTER_API_SYMBOL(FlutterEngine) engine,
+    FlutterEngineDartPort port,
+    const FlutterEngineDartObject* object);
+
+//------------------------------------------------------------------------------
+/// @brief      Posts a low memory notification to a running engine instance.
+///             The engine will do its best to release non-critical resources in
+///             response. It is not guaranteed that the resource would have been
+///             collected by the time this call returns however. The
+///             notification is posted to engine subsystems that may be
+///             operating on other threads.
+///
+///             Flutter applications can respond to these notifications by
+///             setting `WidgetsBindingObserver.didHaveMemoryPressure`
+///             observers.
+///
+/// @param[in]  engine     A running engine instance.
+///
+/// @return     If the low memory notification was sent to the running engine
+///             instance.
+///
+FLUTTER_EXPORT
+FlutterEngineResult FlutterEngineNotifyLowMemoryWarning(
+    FLUTTER_API_SYMBOL(FlutterEngine) engine);
+
+//------------------------------------------------------------------------------
+/// @brief      Schedule a callback to be run on all engine managed threads.
+///             The engine will attempt to service this callback the next time
+///             the message loop for each managed thread is idle. Since the
+///             engine manages the entire lifecycle of multiple threads, there
+///             is no opportunity for the embedders to finely tune the
+///             priorities of threads directly, or, perform other thread
+///             specific configuration (for example, setting thread names for
+///             tracing). This callback gives embedders a chance to affect such
+///             tuning.
+///
+/// @attention  This call is expensive and must be made as few times as
+///             possible. The callback must also return immediately as not doing
+///             so may risk performance issues (especially for callbacks of type
+///             kFlutterNativeThreadTypeUI and kFlutterNativeThreadTypeRender).
+///
+/// @attention  Some callbacks (especially the ones of type
+///             kFlutterNativeThreadTypeWorker) may be called after the
+///             FlutterEngine instance has shut down. Embedders must be careful
+///             in handling the lifecycle of objects associated with the user
+///             data baton.
+///
+/// @attention  In case there are multiple running Flutter engine instances,
+///             their workers are shared.
+///
+/// @param[in]  engine     A running engine instance.
+/// @param[in]  callback   The callback that will get called multiple times on
+///                        each engine managed thread.
+/// @param[in]  user_data  A baton passed by the engine to the callback. This
+///                        baton is not interpreted by the engine in any way.
+///
+/// @return     Returns if the callback was successfully posted to all threads.
+///
+FLUTTER_EXPORT
+FlutterEngineResult FlutterEnginePostCallbackOnAllNativeThreads(
+    FLUTTER_API_SYMBOL(FlutterEngine) engine,
+    FlutterNativeThreadCallback callback,
+    void* user_data);
 
 #if defined(__cplusplus)
 }  // extern "C"

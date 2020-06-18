@@ -4,6 +4,7 @@
 
 #include "flutter/shell/platform/embedder/tests/embedder_config_builder.h"
 
+#include "flutter/runtime/dart_vm.h"
 #include "flutter/shell/platform/embedder/embedder.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
@@ -75,12 +76,20 @@ EmbedderConfigBuilder::EmbedderConfigBuilder(
   // to do this manually.
   AddCommandLineArgument("embedder_unittest");
 
-  if (preference == InitializationPreference::kInitialize) {
+  if (preference != InitializationPreference::kNoInitialize) {
     SetAssetsPath();
-    SetSnapshots();
     SetIsolateCreateCallbackHook();
     SetSemanticsCallbackHooks();
     AddCommandLineArgument("--disable-observatory");
+
+    if (preference == InitializationPreference::kSnapshotsInitialize ||
+        preference == InitializationPreference::kMultiAOTInitialize) {
+      SetSnapshots();
+    }
+    if (preference == InitializationPreference::kAOTDataInitialize ||
+        preference == InitializationPreference::kMultiAOTInitialize) {
+      SetAOTDataElf();
+    }
   }
 }
 
@@ -132,6 +141,10 @@ void EmbedderConfigBuilder::SetSnapshots() {
   }
 }
 
+void EmbedderConfigBuilder::SetAOTDataElf() {
+  project_args_.aot_data = context_.GetAOTData();
+}
+
 void EmbedderConfigBuilder::SetIsolateCreateCallbackHook() {
   project_args_.root_isolate_create_callback =
       EmbedderTestContext::GetIsolateCreateCallbackHook();
@@ -170,8 +183,18 @@ void EmbedderConfigBuilder::SetPlatformTaskRunner(
   project_args_.custom_task_runners = &custom_task_runners_;
 }
 
+void EmbedderConfigBuilder::SetRenderTaskRunner(
+    const FlutterTaskRunnerDescription* runner) {
+  if (runner == nullptr) {
+    return;
+  }
+
+  custom_task_runners_.render_task_runner = runner;
+  project_args_.custom_task_runners = &custom_task_runners_;
+}
+
 void EmbedderConfigBuilder::SetPlatformMessageCallback(
-    std::function<void(const FlutterPlatformMessage*)> callback) {
+    const std::function<void(const FlutterPlatformMessage*)>& callback) {
   context_.SetPlatformMessageCallback(callback);
 }
 
@@ -213,6 +236,14 @@ FlutterCompositor& EmbedderConfigBuilder::GetCompositor() {
 }
 
 UniqueEngine EmbedderConfigBuilder::LaunchEngine() const {
+  return SetupEngine(true);
+}
+
+UniqueEngine EmbedderConfigBuilder::InitializeEngine() const {
+  return SetupEngine(false);
+}
+
+UniqueEngine EmbedderConfigBuilder::SetupEngine(bool run) const {
   FlutterEngine engine = nullptr;
   FlutterProjectArgs project_args = project_args_;
 
@@ -233,8 +264,11 @@ UniqueEngine EmbedderConfigBuilder::LaunchEngine() const {
     project_args.command_line_argc = 0;
   }
 
-  auto result = FlutterEngineRun(FLUTTER_ENGINE_VERSION, &renderer_config_,
-                                 &project_args, &context_, &engine);
+  auto result =
+      run ? FlutterEngineRun(FLUTTER_ENGINE_VERSION, &renderer_config_,
+                             &project_args, &context_, &engine)
+          : FlutterEngineInitialize(FLUTTER_ENGINE_VERSION, &renderer_config_,
+                                    &project_args, &context_, &engine);
 
   if (result != kSuccess) {
     return {};

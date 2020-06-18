@@ -4,7 +4,7 @@
 
 namespace flutter {
 
-// the Windows DPI system is based on this
+// The Windows DPI system is based on this
 // constant for machines running at 100% scaling.
 constexpr int base_dpi = 96;
 
@@ -15,7 +15,9 @@ Win32FlutterWindow::Win32FlutterWindow(int width, int height) {
 
 Win32FlutterWindow::~Win32FlutterWindow() {
   DestroyRenderSurface();
-  Win32Window::Destroy();
+  if (plugin_registrar_ && plugin_registrar_->destruction_handler) {
+    plugin_registrar_->destruction_handler(plugin_registrar_.get());
+  }
 }
 
 FlutterDesktopViewControllerRef Win32FlutterWindow::CreateWin32FlutterWindow(
@@ -59,9 +61,6 @@ void Win32FlutterWindow::SetState(FLUTTER_API_SYMBOL(FlutterEngine) eng) {
   platform_handler_ = std::make_unique<flutter::PlatformHandler>(
       internal_plugin_messenger, this);
 
-  auto state = std::make_unique<FlutterDesktopViewControllerState>();
-  state->engine = engine_;
-
   process_events_ = true;
 }
 
@@ -79,6 +78,27 @@ static FlutterDesktopMessage ConvertToDesktopMessage(
   message.message_size = engine_message.message_size;
   message.response_handle = engine_message.response_handle;
   return message;
+}
+
+// Translates button codes from Win32 API to FlutterPointerMouseButtons.
+static uint64_t ConvertWinButtonToFlutterButton(UINT button) {
+  switch (button) {
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONUP:
+      return kFlutterPointerButtonMousePrimary;
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+      return kFlutterPointerButtonMouseSecondary;
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+      return kFlutterPointerButtonMouseMiddle;
+    case XBUTTON1:
+      return kFlutterPointerButtonMouseBack;
+    case XBUTTON2:
+      return kFlutterPointerButtonMouseForward;
+  }
+  std::cerr << "Mouse button not recognized: " << button << std::endl;
+  return 0;
 }
 
 // The Flutter Engine calls out to this function when new platform messages
@@ -113,15 +133,25 @@ void Win32FlutterWindow::OnPointerMove(double x, double y) {
   }
 }
 
-void Win32FlutterWindow::OnPointerDown(double x, double y) {
+void Win32FlutterWindow::OnPointerDown(double x, double y, UINT button) {
   if (process_events_) {
-    SendPointerDown(x, y);
+    uint64_t flutter_button = ConvertWinButtonToFlutterButton(button);
+    if (flutter_button != 0) {
+      uint64_t mouse_buttons = GetMouseState().buttons | flutter_button;
+      SetMouseButtons(mouse_buttons);
+      SendPointerDown(x, y);
+    }
   }
 }
 
-void Win32FlutterWindow::OnPointerUp(double x, double y) {
+void Win32FlutterWindow::OnPointerUp(double x, double y, UINT button) {
   if (process_events_) {
-    SendPointerUp(x, y);
+    uint64_t flutter_button = ConvertWinButtonToFlutterButton(button);
+    if (flutter_button != 0) {
+      uint64_t mouse_buttons = GetMouseState().buttons & ~flutter_button;
+      SetMouseButtons(mouse_buttons);
+      SendPointerUp(x, y);
+    }
   }
 }
 
@@ -131,15 +161,18 @@ void Win32FlutterWindow::OnPointerLeave() {
   }
 }
 
-void Win32FlutterWindow::OnChar(char32_t code_point) {
+void Win32FlutterWindow::OnText(const std::u16string& text) {
   if (process_events_) {
-    SendChar(code_point);
+    SendText(text);
   }
 }
 
-void Win32FlutterWindow::OnKey(int key, int scancode, int action, int mods) {
+void Win32FlutterWindow::OnKey(int key,
+                               int scancode,
+                               int action,
+                               char32_t character) {
   if (process_events_) {
-    SendKey(key, scancode, action, 0);
+    SendKey(key, scancode, action, character);
   }
 }
 
@@ -147,10 +180,6 @@ void Win32FlutterWindow::OnScroll(double delta_x, double delta_y) {
   if (process_events_) {
     SendScroll(delta_x, delta_y);
   }
-}
-
-void Win32FlutterWindow::OnClose() {
-  messageloop_running_ = false;
 }
 
 void Win32FlutterWindow::OnFontChange() {
@@ -190,8 +219,15 @@ void Win32FlutterWindow::SetEventLocationFromCursorPosition(
 // primary mouse button state.
 void Win32FlutterWindow::SetEventPhaseFromCursorButtonState(
     FlutterPointerEvent* event_data) {
-  event_data->phase = pointer_is_down_ ? FlutterPointerPhase::kMove
-                                       : FlutterPointerPhase::kHover;
+  MouseState state = GetMouseState();
+  // For details about this logic, see FlutterPointerPhase in the embedder.h
+  // file.
+  event_data->phase = state.buttons == 0 ? state.flutter_state_is_down
+                                               ? FlutterPointerPhase::kUp
+                                               : FlutterPointerPhase::kHover
+                                         : state.flutter_state_is_down
+                                               ? FlutterPointerPhase::kMove
+                                               : FlutterPointerPhase::kDown;
 }
 
 void Win32FlutterWindow::SendPointerMove(double x, double y) {
@@ -203,21 +239,23 @@ void Win32FlutterWindow::SendPointerMove(double x, double y) {
 }
 
 void Win32FlutterWindow::SendPointerDown(double x, double y) {
-  pointer_is_down_ = true;
   FlutterPointerEvent event = {};
-  event.phase = FlutterPointerPhase::kDown;
+  SetEventPhaseFromCursorButtonState(&event);
   event.x = x;
   event.y = y;
   SendPointerEventWithData(event);
+  SetMouseFlutterStateDown(true);
 }
 
 void Win32FlutterWindow::SendPointerUp(double x, double y) {
-  pointer_is_down_ = false;
   FlutterPointerEvent event = {};
-  event.phase = FlutterPointerPhase::kUp;
+  SetEventPhaseFromCursorButtonState(&event);
   event.x = x;
   event.y = y;
   SendPointerEventWithData(event);
+  if (event.phase == FlutterPointerPhase::kUp) {
+    SetMouseFlutterStateDown(false);
+  }
 }
 
 void Win32FlutterWindow::SendPointerLeave() {
@@ -226,15 +264,18 @@ void Win32FlutterWindow::SendPointerLeave() {
   SendPointerEventWithData(event);
 }
 
-void Win32FlutterWindow::SendChar(char32_t code_point) {
+void Win32FlutterWindow::SendText(const std::u16string& text) {
   for (const auto& handler : keyboard_hook_handlers_) {
-    handler->CharHook(this, code_point);
+    handler->TextHook(this, text);
   }
 }
 
-void Win32FlutterWindow::SendKey(int key, int scancode, int action, int mods) {
+void Win32FlutterWindow::SendKey(int key,
+                                 int scancode,
+                                 int action,
+                                 char32_t character) {
   for (const auto& handler : keyboard_hook_handlers_) {
-    handler->KeyboardHook(this, key, scancode, action, mods);
+    handler->KeyboardHook(this, key, scancode, action, character);
   }
 }
 
@@ -253,24 +294,29 @@ void Win32FlutterWindow::SendScroll(double delta_x, double delta_y) {
 
 void Win32FlutterWindow::SendPointerEventWithData(
     const FlutterPointerEvent& event_data) {
+  MouseState mouse_state = GetMouseState();
   // If sending anything other than an add, and the pointer isn't already added,
   // synthesize an add to satisfy Flutter's expectations about events.
-  if (!pointer_currently_added_ &&
+  if (!mouse_state.flutter_state_is_added &&
       event_data.phase != FlutterPointerPhase::kAdd) {
     FlutterPointerEvent event = {};
     event.phase = FlutterPointerPhase::kAdd;
     event.x = event_data.x;
     event.y = event_data.y;
+    event.buttons = 0;
     SendPointerEventWithData(event);
   }
   // Don't double-add (e.g., if events are delivered out of order, so an add has
   // already been synthesized).
-  if (pointer_currently_added_ &&
+  if (mouse_state.flutter_state_is_added &&
       event_data.phase == FlutterPointerPhase::kAdd) {
     return;
   }
 
   FlutterPointerEvent event = event_data;
+  event.device_kind = kFlutterPointerDeviceKindMouse;
+  event.buttons = mouse_state.buttons;
+
   // Set metadata that's always the same regardless of the event.
   event.struct_size = sizeof(event);
   event.timestamp =
@@ -278,19 +324,13 @@ void Win32FlutterWindow::SendPointerEventWithData(
           std::chrono::high_resolution_clock::now().time_since_epoch())
           .count();
 
-  // Windows passes all input in either physical pixels (Per-monitor, System
-  // DPI) or pre-scaled to match bitmap scaling of output where process is
-  // running in DPI unaware more.  In either case, no need to manually scale
-  // input here.  For more information see DPIHelper.
-  event.scroll_delta_x;
-  event.scroll_delta_y;
-
   FlutterEngineSendPointerEvent(engine_, &event, 1);
 
   if (event_data.phase == FlutterPointerPhase::kAdd) {
-    pointer_currently_added_ = true;
+    SetMouseFlutterStateAdded(true);
   } else if (event_data.phase == FlutterPointerPhase::kRemove) {
-    pointer_currently_added_ = false;
+    SetMouseFlutterStateAdded(false);
+    ResetMouseState();
   }
 }
 
@@ -322,5 +362,4 @@ void Win32FlutterWindow::DestroyRenderSurface() {
   }
   render_surface = EGL_NO_SURFACE;
 }
-
 }  // namespace flutter

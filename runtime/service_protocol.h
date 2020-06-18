@@ -14,7 +14,6 @@
 #include "flutter/fml/macros.h"
 #include "flutter/fml/synchronization/atomic_object.h"
 #include "flutter/fml/synchronization/shared_mutex.h"
-#include "flutter/fml/synchronization/thread_annotations.h"
 #include "flutter/fml/task_runner.h"
 #include "rapidjson/document.h"
 
@@ -28,6 +27,7 @@ class ServiceProtocol {
   static const std::string_view kFlushUIThreadTasksExtensionName;
   static const std::string_view kSetAssetBundlePathExtensionName;
   static const std::string_view kGetDisplayRefreshRateExtensionName;
+  static const std::string_view kGetSkSLsExtensionName;
 
   class Handler {
    public:
@@ -77,25 +77,22 @@ class ServiceProtocol {
   std::unique_ptr<fml::SharedMutex> handlers_mutex_;
   std::map<Handler*, fml::AtomicObject<Handler::Description>> handlers_;
 
-  FML_WARN_UNUSED_RESULT
-  static bool HandleMessage(const char* method,
-                            const char** param_keys,
-                            const char** param_values,
-                            intptr_t num_params,
-                            void* user_data,
-                            const char** json_object);
-  FML_WARN_UNUSED_RESULT
-  static bool HandleMessage(std::string_view method,
-                            const Handler::ServiceProtocolMap& params,
-                            ServiceProtocol* service_protocol,
-                            rapidjson::Document& response);
-  FML_WARN_UNUSED_RESULT
-  bool HandleMessage(std::string_view method,
-                     const Handler::ServiceProtocolMap& params,
-                     rapidjson::Document& response) const;
+  [[nodiscard]] static bool HandleMessage(const char* method,
+                                          const char** param_keys,
+                                          const char** param_values,
+                                          intptr_t num_params,
+                                          void* user_data,
+                                          const char** json_object);
+  [[nodiscard]] static bool HandleMessage(
+      std::string_view method,
+      const Handler::ServiceProtocolMap& params,
+      ServiceProtocol* service_protocol,
+      rapidjson::Document& response);
+  [[nodiscard]] bool HandleMessage(std::string_view method,
+                                   const Handler::ServiceProtocolMap& params,
+                                   rapidjson::Document& response) const;
 
-  FML_WARN_UNUSED_RESULT
-  bool HandleListViewsMethod(rapidjson::Document& response) const;
+  [[nodiscard]] bool HandleListViewsMethod(rapidjson::Document& response) const;
 
   FML_DISALLOW_COPY_AND_ASSIGN(ServiceProtocol);
 };

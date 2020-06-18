@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @dart = 2.6
 part of engine;
 
 /// Defines canvas interface common across canvases that the [SceneBuilder]
@@ -30,7 +31,7 @@ abstract class EngineCanvas {
 
   void skew(double sx, double sy);
 
-  void transform(Float64List matrix4);
+  void transform(Float32List matrix4);
 
   void clipRect(ui.Rect rect);
 
@@ -40,31 +41,40 @@ abstract class EngineCanvas {
 
   void drawColor(ui.Color color, ui.BlendMode blendMode);
 
-  void drawLine(ui.Offset p1, ui.Offset p2, ui.PaintData paint);
+  void drawLine(ui.Offset p1, ui.Offset p2, SurfacePaintData paint);
 
-  void drawPaint(ui.PaintData paint);
+  void drawPaint(SurfacePaintData paint);
 
-  void drawRect(ui.Rect rect, ui.PaintData paint);
+  void drawRect(ui.Rect rect, SurfacePaintData paint);
 
-  void drawRRect(ui.RRect rrect, ui.PaintData paint);
+  void drawRRect(ui.RRect rrect, SurfacePaintData paint);
 
-  void drawDRRect(ui.RRect outer, ui.RRect inner, ui.PaintData paint);
+  void drawDRRect(ui.RRect outer, ui.RRect inner, SurfacePaintData paint);
 
-  void drawOval(ui.Rect rect, ui.PaintData paint);
+  void drawOval(ui.Rect rect, SurfacePaintData paint);
 
-  void drawCircle(ui.Offset c, double radius, ui.PaintData paint);
+  void drawCircle(ui.Offset c, double radius, SurfacePaintData paint);
 
-  void drawPath(ui.Path path, ui.PaintData paint);
+  void drawPath(ui.Path path, SurfacePaintData paint);
 
   void drawShadow(
       ui.Path path, ui.Color color, double elevation, bool transparentOccluder);
 
-  void drawImage(ui.Image image, ui.Offset p, ui.PaintData paint);
+  void drawImage(ui.Image image, ui.Offset p, SurfacePaintData paint);
 
   void drawImageRect(
-      ui.Image image, ui.Rect src, ui.Rect dst, ui.PaintData paint);
+      ui.Image image, ui.Rect src, ui.Rect dst, SurfacePaintData paint);
 
   void drawParagraph(EngineParagraph paragraph, ui.Offset offset);
+
+  void drawVertices(
+      SurfaceVertices vertices, ui.BlendMode blendMode, SurfacePaintData paint);
+
+  void drawPoints(ui.PointMode pointMode, Float32List points, SurfacePaintData paint);
+
+  /// Extension of Canvas API to mark the end of a stream of painting commands
+  /// to enable re-use/dispose optimizations.
+  void endOfPaint();
 }
 
 /// Adds an [offset] transformation to a [transform] matrix and returns the
@@ -194,7 +204,7 @@ mixin SaveStackTracking on EngineCanvas {
   @override
   void skew(double sx, double sy) {
     final Matrix4 skewMatrix = Matrix4.identity();
-    final Float64List storage = skewMatrix.storage;
+    final Float32List storage = skewMatrix.storage;
     storage[1] = sy;
     storage[4] = sx;
     _currentTransform.multiply(skewMatrix);
@@ -204,8 +214,8 @@ mixin SaveStackTracking on EngineCanvas {
   ///
   /// Classes that override this method must call `super.transform()`.
   @override
-  void transform(Float64List matrix4) {
-    _currentTransform.multiply(Matrix4.fromFloat64List(matrix4));
+  void transform(Float32List matrix4) {
+    _currentTransform.multiply(Matrix4.fromFloat32List(matrix4));
   }
 
   /// Adds a rectangle to clipping stack.
@@ -255,10 +265,10 @@ html.Element _drawParagraphElement(
     ..width = '${paragraph.width}px';
 
   if (transform != null) {
-    paragraphStyle
-      ..transformOrigin = '0 0 0'
-      ..transform =
-          matrix4ToCssTransform(transformWithOffset(transform, offset));
+    setElementTransform(
+      paragraphElement,
+      transformWithOffset(transform, offset).storage,
+    );
   }
 
   final ParagraphGeometricStyle style = paragraph._geometricStyle;

@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// @dart = 2.6
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
@@ -96,6 +97,14 @@ void main() {
         await blackSquare.resize(targetHeight: 1, targetWidth: 10);
     expect(resized.height, 1);
     expect(resized.width, 10);
+  });
+
+  test('pixels: large negative dimensions', () async {
+    final BlackSquare blackSquare = BlackSquare.create();
+    final Image resized =
+        await blackSquare.resize(targetHeight: -100, targetWidth: -99999);
+    expect(resized.height, 2);
+    expect(resized.width, 2);
   });
 }
 

@@ -8,7 +8,6 @@
 #include <map>
 #include <set>
 
-#include <fuchsia/modular/cpp/fidl.h>
 #include <fuchsia/ui/gfx/cpp/fidl.h>
 #include <fuchsia/ui/input/cpp/fidl.h>
 #include <fuchsia/ui/scenic/cpp/fidl.h>
@@ -21,6 +20,7 @@
 #include "lib/fidl/cpp/binding.h"
 #include "lib/ui/scenic/cpp/id.h"
 
+#include "flutter_runner_product_configuration.h"
 #include "surface.h"
 
 namespace flutter_runner {
@@ -38,11 +38,11 @@ using OnEnableWireframe = fit::function<void(bool)>;
 // thread.
 class PlatformView final : public flutter::PlatformView,
                            private fuchsia::ui::scenic::SessionListener,
-                           public fuchsia::ui::input::InputMethodEditorClient {
+                           public fuchsia::ui::input::InputMethodEditorClient,
+                           public AccessibilityBridge::Delegate {
  public:
-  PlatformView(PlatformView::Delegate& delegate,
+  PlatformView(flutter::PlatformView::Delegate& delegate,
                std::string debug_label,
-               fuchsia::ui::views::ViewRefControl view_ref_control,
                fuchsia::ui::views::ViewRef view_ref,
                flutter::TaskRunners task_runners,
                std::shared_ptr<sys::ServiceDirectory> runner_services,
@@ -54,8 +54,9 @@ class PlatformView final : public flutter::PlatformView,
                OnMetricsUpdate session_metrics_did_change_callback,
                OnSizeChangeHint session_size_change_hint_callback,
                OnEnableWireframe wireframe_enabled_callback,
-               zx_handle_t vsync_event_handle);
-  PlatformView(PlatformView::Delegate& delegate,
+               zx_handle_t vsync_event_handle,
+               FlutterRunnerProductConfiguration product_config);
+  PlatformView(flutter::PlatformView::Delegate& delegate,
                std::string debug_label,
                flutter::TaskRunners task_runners,
                fidl::InterfaceHandle<fuchsia::sys::ServiceProvider>
@@ -66,11 +67,21 @@ class PlatformView final : public flutter::PlatformView,
 
   void UpdateViewportMetrics(const fuchsia::ui::gfx::Metrics& metrics);
 
+  // |flutter::PlatformView|
+  // |flutter_runner::AccessibilityBridge::Delegate|
+  void SetSemanticsEnabled(bool enabled) override;
+
+  // |flutter_runner::AccessibilityBridge::Delegate|
+  void DispatchSemanticsAction(int32_t node_id,
+                               flutter::SemanticsAction action) override;
+
+  // |PlatformView|
+  flutter::PointerDataDispatcherMaker GetDispatcherMaker() override;
+
  private:
   const std::string debug_label_;
   // TODO(MI4-2490): remove once ViewRefControl is passed to Scenic and kept
   // alive there
-  const fuchsia::ui::views::ViewRefControl view_ref_control_;
   const fuchsia::ui::views::ViewRef view_ref_;
   std::unique_ptr<AccessibilityBridge> accessibility_bridge_;
 
@@ -86,7 +97,6 @@ class PlatformView final : public flutter::PlatformView,
   fuchsia::ui::input::ImeServicePtr text_sync_service_;
 
   fuchsia::sys::ServiceProviderPtr parent_environment_service_provider_;
-  fuchsia::modular::ClipboardPtr clipboard_;
   std::unique_ptr<Surface> surface_;
   flutter::LogicalMetrics metrics_;
   fuchsia::ui::gfx::Metrics scenic_metrics_;
@@ -101,7 +111,13 @@ class PlatformView final : public flutter::PlatformView,
       fit::function<void(
           fml::RefPtr<flutter::PlatformMessage> /* message */)> /* handler */>
       platform_message_handlers_;
+  // These are the channels that aren't registered and have been notified as
+  // such. Notifying via logs multiple times results in log-spam. See:
+  // https://github.com/flutter/flutter/issues/55966
+  std::set<std::string /* channel */> unregistered_channels_;
   zx_handle_t vsync_event_handle_ = 0;
+
+  FlutterRunnerProductConfiguration product_config_;
 
   void RegisterPlatformMessageHandlers();
 
@@ -152,9 +168,6 @@ class PlatformView final : public flutter::PlatformView,
   // |flutter::PlatformView|
   void HandlePlatformMessage(
       fml::RefPtr<flutter::PlatformMessage> message) override;
-
-  // |flutter::PlatformView|
-  void SetSemanticsEnabled(bool enabled) override;
 
   // |flutter::PlatformView|
   void UpdateSemantics(

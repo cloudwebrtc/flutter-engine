@@ -11,10 +11,12 @@ PlatformViewLayer::PlatformViewLayer(const SkPoint& offset,
                                      int64_t view_id)
     : offset_(offset), size_(size), view_id_(view_id) {}
 
-PlatformViewLayer::~PlatformViewLayer() = default;
-
 void PlatformViewLayer::Preroll(PrerollContext* context,
                                 const SkMatrix& matrix) {
+#if defined(OS_FUCHSIA)
+  CheckForChildLayerBelow(context);
+#endif
+
   set_paint_bounds(SkRect::MakeXYWH(offset_.x(), offset_.y(), size_.width(),
                                     size_.height()));
 
@@ -23,6 +25,7 @@ void PlatformViewLayer::Preroll(PrerollContext* context,
                       "does not support embedding";
     return;
   }
+  context->has_platform_view = true;
   std::unique_ptr<EmbeddedViewParams> params =
       std::make_unique<EmbeddedViewParams>();
   params->offsetPixels =

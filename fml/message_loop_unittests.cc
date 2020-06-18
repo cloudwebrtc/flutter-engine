@@ -7,6 +7,7 @@
 #include <iostream>
 #include <thread>
 
+#include "flutter/fml/build_config.h"
 #include "flutter/fml/concurrent_message_loop.h"
 #include "flutter/fml/message_loop.h"
 #include "flutter/fml/synchronization/count_down_latch.h"
@@ -280,6 +281,12 @@ TEST(MessageLoop, TaskObserverFire) {
   thread.join();
   ASSERT_TRUE(started);
   ASSERT_TRUE(terminated);
+}
+
+TEST(MessageLoop, ConcurrentMessageLoopHasNonZeroWorkers) {
+  auto loop = fml::ConcurrentMessageLoop::Create(
+      0u /* explicitly specify zero workers */);
+  ASSERT_GT(loop->GetWorkerCount(), 0u);
 }
 
 TEST(MessageLoop, CanCreateAndShutdownConcurrentMessageLoopsOverAndOver) {

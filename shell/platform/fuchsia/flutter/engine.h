@@ -5,15 +5,18 @@
 #ifndef FLUTTER_SHELL_PLATFORM_FUCHSIA_ENGINE_H_
 #define FLUTTER_SHELL_PLATFORM_FUCHSIA_ENGINE_H_
 
+#include <fuchsia/intl/cpp/fidl.h>
 #include <fuchsia/io/cpp/fidl.h>
 #include <fuchsia/ui/gfx/cpp/fidl.h>
 #include <fuchsia/ui/views/cpp/fidl.h>
 #include <lib/async-loop/cpp/loop.h>
 #include <lib/sys/cpp/service_directory.h>
+#include <lib/ui/scenic/cpp/view_ref_pair.h>
 #include <lib/zx/event.h>
 
 #include "flutter/fml/macros.h"
 #include "flutter/shell/common/shell.h"
+#include "flutter_runner_product_configuration.h"
 #include "isolate_configurator.h"
 #include "thread.h"
 
@@ -35,10 +38,10 @@ class Engine final {
          flutter::Settings settings,
          fml::RefPtr<const flutter::DartSnapshot> isolate_snapshot,
          fuchsia::ui::views::ViewToken view_token,
-         fuchsia::ui::views::ViewRefControl view_ref_control,
-         fuchsia::ui::views::ViewRef view_ref,
+         scenic::ViewRefPair view_ref_pair,
          UniqueFDIONS fdio_ns,
-         fidl::InterfaceRequest<fuchsia::io::Directory> directory_request);
+         fidl::InterfaceRequest<fuchsia::io::Directory> directory_request,
+         FlutterRunnerProductConfiguration product_config);
   ~Engine();
 
   // Returns the Dart return code for the root isolate if one is present. This
@@ -58,6 +61,8 @@ class Engine final {
   std::unique_ptr<flutter::Shell> shell_;
   zx::event vsync_event_;
   fml::WeakPtrFactory<Engine> weak_factory_;
+  // A stub for the FIDL protocol fuchsia.intl.PropertyProvider.
+  fuchsia::intl::PropertyProviderPtr intl_property_provider_;
 
   void OnMainIsolateStart();
 

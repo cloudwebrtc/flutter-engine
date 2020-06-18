@@ -68,6 +68,10 @@ class StubFlutterGlfwApi {
   // Called for FlutterDesktopWindowSetPixelRatioOverride.
   virtual void SetPixelRatioOverride(double pixel_ratio) {}
 
+  // Called for FlutterDesktopWindowSetSizeLimits.
+  virtual void SetSizeLimits(FlutterDesktopSize minimum_size,
+                             FlutterDesktopSize maximum_size) {}
+
   // Called for FlutterDesktopRunWindowEventLoopWithTimeout.
   virtual bool RunWindowEventLoopWithTimeout(uint32_t millisecond_timeout) {
     return true;
@@ -78,6 +82,9 @@ class StubFlutterGlfwApi {
       const FlutterDesktopEngineProperties& properties) {
     return nullptr;
   }
+
+  // Called for FlutterDesktopRunEngineEventLoopWithTimeout.
+  virtual void RunEngineEventLoopWithTimeout(uint32_t millisecond_timeout) {}
 
   // Called for FlutterDesktopShutDownEngine.
   virtual bool ShutDownEngine() { return true; }

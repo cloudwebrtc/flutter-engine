@@ -9,9 +9,10 @@
 #include <memory>
 
 #include "flutter/flow/embedded_views.h"
+#include "flutter/flow/gl_context_switch.h"
+#include "flutter/flow/surface.h"
 #include "flutter/fml/macros.h"
 #include "flutter/fml/memory/weak_ptr.h"
-#include "flutter/shell/common/surface.h"
 #include "flutter/shell/gpu/gpu_surface_gl_delegate.h"
 #include "third_party/skia/include/gpu/GrContext.h"
 
@@ -26,6 +27,7 @@ class GPUSurfaceGL : public Surface {
                GPUSurfaceGLDelegate* delegate,
                bool render_to_surface);
 
+  // |Surface|
   ~GPUSurfaceGL() override;
 
   // |Surface|
@@ -44,13 +46,12 @@ class GPUSurfaceGL : public Surface {
   flutter::ExternalViewEmbedder* GetExternalViewEmbedder() override;
 
   // |Surface|
-  bool MakeRenderContextCurrent() override;
+  std::unique_ptr<GLContextResult> MakeRenderContextCurrent() override;
 
  private:
   GPUSurfaceGLDelegate* delegate_;
   sk_sp<GrContext> context_;
   sk_sp<SkSurface> onscreen_surface_;
-  sk_sp<SkSurface> offscreen_surface_;
   bool context_owner_;
   // TODO(38466): Refactor GPU surface APIs take into account the fact that an
   // external view embedder may want to render to the root surface. This is a
@@ -58,7 +59,7 @@ class GPUSurfaceGL : public Surface {
   // external view embedder is present.
   const bool render_to_surface_;
   bool valid_ = false;
-  fml::WeakPtrFactory<GPUSurfaceGL> weak_factory_;
+  fml::TaskRunnerAffineWeakPtrFactory<GPUSurfaceGL> weak_factory_;
 
   bool CreateOrUpdateSurfaces(const SkISize& size);
 

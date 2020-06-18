@@ -11,7 +11,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "third_party/skia/include/core/SkMatrix44.h"
+#include "third_party/skia/include/core/SkM44.h"
 #include "third_party/skia/include/core/SkRect.h"
 
 namespace flutter {
@@ -72,6 +72,8 @@ enum class SemanticsFlags : int32_t {
   // The Dart API defines the following flag but it isn't used in iOS.
   // kIsMultiline = 1 << 19,
   kIsReadOnly = 1 << 20,
+  kIsFocusable = 1 << 21,
+  kIsLink = 1 << 22,
 };
 
 const int kScrollableSemanticsFlags =
@@ -113,7 +115,7 @@ struct SemanticsNode {
   int32_t textDirection = 0;  // 0=unknown, 1=rtl, 2=ltr
 
   SkRect rect = SkRect::MakeEmpty();
-  SkMatrix44 transform = SkMatrix44(SkMatrix44::kIdentity_Constructor);
+  SkM44 transform = SkM44{};  // Identity
   std::vector<int32_t> childrenInTraversalOrder;
   std::vector<int32_t> childrenInHitTestOrder;
   std::vector<int32_t> customAccessibilityActions;

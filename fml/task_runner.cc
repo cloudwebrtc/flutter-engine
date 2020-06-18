@@ -5,6 +5,7 @@
 #define FML_USED_ON_EMBEDDER
 
 #include "flutter/fml/task_runner.h"
+#include "flutter/fml/memory/task_runner_checker.h"
 
 #include <utility>
 
@@ -20,17 +21,18 @@ TaskRunner::TaskRunner(fml::RefPtr<MessageLoopImpl> loop)
 
 TaskRunner::~TaskRunner() = default;
 
-void TaskRunner::PostTask(fml::closure task) {
-  loop_->PostTask(std::move(task), fml::TimePoint::Now());
+void TaskRunner::PostTask(const fml::closure& task) {
+  loop_->PostTask(task, fml::TimePoint::Now());
 }
 
-void TaskRunner::PostTaskForTime(fml::closure task,
+void TaskRunner::PostTaskForTime(const fml::closure& task,
                                  fml::TimePoint target_time) {
-  loop_->PostTask(std::move(task), target_time);
+  loop_->PostTask(task, target_time);
 }
 
-void TaskRunner::PostDelayedTask(fml::closure task, fml::TimeDelta delay) {
-  loop_->PostTask(std::move(task), fml::TimePoint::Now() + delay);
+void TaskRunner::PostDelayedTask(const fml::closure& task,
+                                 fml::TimeDelta delay) {
+  loop_->PostTask(task, fml::TimePoint::Now() + delay);
 }
 
 TaskQueueId TaskRunner::GetTaskQueueId() {
@@ -46,23 +48,12 @@ bool TaskRunner::RunsTasksOnCurrentThread() {
   const auto current_queue_id = MessageLoop::GetCurrentTaskQueueId();
   const auto loop_queue_id = loop_->GetTaskQueueId();
 
-  if (current_queue_id == loop_queue_id) {
-    return true;
-  }
-
-  auto queues = MessageLoopTaskQueues::GetInstance();
-  if (queues->Owns(current_queue_id, loop_queue_id)) {
-    return true;
-  }
-  if (queues->Owns(loop_queue_id, current_queue_id)) {
-    return true;
-  }
-
-  return false;
+  return TaskRunnerChecker::RunsOnTheSameThread(current_queue_id,
+                                                loop_queue_id);
 }
 
 void TaskRunner::RunNowOrPostTask(fml::RefPtr<fml::TaskRunner> runner,
-                                  fml::closure task) {
+                                  const fml::closure& task) {
   FML_DCHECK(runner);
   if (runner->RunsTasksOnCurrentThread()) {
     task();

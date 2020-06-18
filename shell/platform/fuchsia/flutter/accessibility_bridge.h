@@ -2,8 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef TOPAZ_RUNTIME_FLUTTER_RUNNER_ACCESSIBILITY_BRIDGE_H_
-#define TOPAZ_RUNTIME_FLUTTER_RUNNER_ACCESSIBILITY_BRIDGE_H_
+#ifndef FLUTTER_SHELL_PLATFORM_FUCHSIA_FLUTTER_ACCESSIBILITY_BRIDGE_H_
+#define FLUTTER_SHELL_PLATFORM_FUCHSIA_FLUTTER_ACCESSIBILITY_BRIDGE_H_
+
+// Work around symbol conflicts with ICU.
+#undef TRUE
+#undef FALSE
 
 #include <fuchsia/accessibility/semantics/cpp/fidl.h>
 #include <fuchsia/sys/cpp/fidl.h>
@@ -36,6 +40,14 @@ namespace flutter_runner {
 class AccessibilityBridge
     : public fuchsia::accessibility::semantics::SemanticListener {
  public:
+  // A delegate to call when semantics are enabled or disabled.
+  class Delegate {
+   public:
+    virtual void SetSemanticsEnabled(bool enabled) = 0;
+    virtual void DispatchSemanticsAction(int32_t node_id,
+                                         flutter::SemanticsAction action) = 0;
+  };
+
   // TODO(MI4-2531, FIDL-718): Remove this. We shouldn't be worried about
   // batching messages at this level.
   // FIDL may encode a C++ struct as larger than the sizeof the C++ struct.
@@ -55,7 +67,8 @@ class AccessibilityBridge
       "flutter::SemanticsNode::id and "
       "fuchsia::accessibility::semantics::Node::node_id differ in size.");
 
-  AccessibilityBridge(const std::shared_ptr<sys::ServiceDirectory> services,
+  AccessibilityBridge(Delegate& delegate,
+                      const std::shared_ptr<sys::ServiceDirectory> services,
                       fuchsia::ui::views::ViewRef view_ref);
 
   // Returns true if accessible navigation is enabled.
@@ -74,7 +87,33 @@ class AccessibilityBridge
   // Notifies the bridge of a 'hover move' touch exploration event.
   zx_status_t OnHoverMove(double x, double y);
 
+  // |fuchsia::accessibility::semantics::SemanticListener|
+  void HitTest(
+      fuchsia::math::PointF local_point,
+      fuchsia::accessibility::semantics::SemanticListener::HitTestCallback
+          callback) override;
+
+  // |fuchsia::accessibility::semantics::SemanticListener|
+  void OnAccessibilityActionRequested(
+      uint32_t node_id,
+      fuchsia::accessibility::semantics::Action action,
+      fuchsia::accessibility::semantics::SemanticListener::
+          OnAccessibilityActionRequestedCallback callback) override;
+
  private:
+  // Holds only the fields we need for hit testing.
+  // In particular, it adds a screen_rect field to flutter::SemanticsNode.
+  struct SemanticsNode {
+    int32_t id;
+    int32_t flags;
+    SkRect rect;
+    SkRect screen_rect;
+    SkM44 transform;
+    std::vector<int32_t> children_in_hit_test_order;
+  };
+
+  AccessibilityBridge::Delegate& delegate_;
+
   static constexpr int32_t kRootNodeId = 0;
   fidl::Binding<fuchsia::accessibility::semantics::SemanticListener> binding_;
   fuchsia::accessibility::semantics::SemanticsManagerPtr
@@ -82,8 +121,8 @@ class AccessibilityBridge
   fuchsia::accessibility::semantics::SemanticTreePtr tree_ptr_;
   bool semantics_enabled_;
   // This is the cache of all nodes we've sent to Fuchsia's SemanticsManager.
-  // Assists with pruning unreachable nodes.
-  std::unordered_map<int32_t, std::vector<int32_t>> nodes_;
+  // Assists with pruning unreachable nodes and hit testing.
+  std::unordered_map<int32_t, SemanticsNode> nodes_;
 
   // Derives the BoundingBox of a Flutter semantics node from its
   // rect and elevation.
@@ -103,7 +142,8 @@ class AccessibilityBridge
   // Derives the states for a Fuchsia semantics node from a Flutter semantics
   // node.
   fuchsia::accessibility::semantics::States GetNodeStates(
-      const flutter::SemanticsNode& node) const;
+      const flutter::SemanticsNode& node,
+      size_t* additional_size) const;
 
   // Gets the set of reachable descendants from the given node id.
   std::unordered_set<int32_t> GetDescendants(int32_t node_id) const;
@@ -114,26 +154,41 @@ class AccessibilityBridge
   // May result in a call to FuchsiaAccessibility::Commit().
   void PruneUnreachableNodes();
 
-  // |fuchsia::accessibility::semantics::SemanticListener|
-  void OnAccessibilityActionRequested(
-      uint32_t node_id,
-      fuchsia::accessibility::semantics::Action action,
-      fuchsia::accessibility::semantics::SemanticListener::
-          OnAccessibilityActionRequestedCallback callback) override;
+  // Updates the on-screen positions of accessibility elements,
+  // starting from the root element with an identity matrix.
+  //
+  // This should be called from Update.
+  void UpdateScreenRects();
+
+  // Updates the on-screen positions of accessibility elements, starting
+  // from node_id and using the specified transform.
+  //
+  // Update calls this via UpdateScreenRects().
+  void UpdateScreenRects(int32_t node_id,
+                         SkM44 parent_transform,
+                         std::unordered_set<int32_t>* visited_nodes);
+
+  // Traverses the semantics tree to find the node_id hit by the given x,y
+  // point.
+  //
+  // Assumes that SemanticsNode::screen_rect is up to date.
+  std::optional<int32_t> GetHitNode(int32_t node_id, float x, float y);
+
+  // Converts a fuchsia::accessibility::semantics::Action to a
+  // flutter::SemanticsAction.
+  //
+  // The node_id parameter is used for printing warnings about unsupported
+  // action types.
+  std::optional<flutter::SemanticsAction> GetFlutterSemanticsAction(
+      fuchsia::accessibility::semantics::Action fuchsia_action,
+      uint32_t node_id);
 
   // |fuchsia::accessibility::semantics::SemanticListener|
-  void HitTest(
-      fuchsia::math::PointF local_point,
-      fuchsia::accessibility::semantics::SemanticListener::HitTestCallback
-          callback) override;
-
-  // |fuchsia::accessibility::semantics::SemanticListener|
-  void OnSemanticsModeChanged(
-      bool enabled,
-      OnSemanticsModeChangedCallback callback) override {}
+  void OnSemanticsModeChanged(bool enabled,
+                              OnSemanticsModeChangedCallback callback) override;
 
   FML_DISALLOW_COPY_AND_ASSIGN(AccessibilityBridge);
 };
 }  // namespace flutter_runner
 
-#endif  // TOPAZ_RUNTIME_FLUTTER_RUNNER_ACCESSIBILITY_BRIDGE_H_
+#endif  // FLUTTER_SHELL_PLATFORM_FUCHSIA_FLUTTER_ACCESSIBILITY_BRIDGE_H_

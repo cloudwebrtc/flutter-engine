@@ -44,6 +44,7 @@ enum class AccessibilityFeatureFlag : int32_t {
   kDisableAnimations = 1 << 2,
   kBoldText = 1 << 3,
   kReduceMotion = 1 << 4,
+  kHighContrast = 1 << 5,
 };
 
 class WindowClient {
@@ -57,6 +58,10 @@ class WindowClient {
   virtual void UpdateIsolateDescription(const std::string isolate_name,
                                         int64_t isolate_port) = 0;
   virtual void SetNeedsReportTimings(bool value) = 0;
+  virtual std::shared_ptr<const fml::Mapping> GetPersistentIsolateData() = 0;
+  virtual std::unique_ptr<std::vector<std::string>>
+  ComputePlatformResolvedLocale(
+      const std::vector<std::string>& supported_locale_data) = 0;
 
  protected:
   virtual ~WindowClient();
@@ -75,6 +80,7 @@ class Window final {
   void DidCreateIsolate();
   void UpdateWindowMetrics(const ViewportMetrics& metrics);
   void UpdateLocales(const std::vector<std::string>& locales);
+  void UpdatePlatformResolvedLocale(const std::vector<std::string>& locale);
   void UpdateUserSettingsData(const std::string& data);
   void UpdateLifecycleState(const std::string& data);
   void UpdateSemanticsEnabled(bool enabled);
