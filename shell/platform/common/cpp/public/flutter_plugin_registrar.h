@@ -10,6 +10,7 @@
 
 #include "flutter_export.h"
 #include "flutter_messenger.h"
+#include "flutter_texture_registrar.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -30,6 +31,10 @@ FlutterDesktopRegistrarGetMessenger(FlutterDesktopPluginRegistrarRef registrar);
 FLUTTER_EXPORT void FlutterDesktopRegistrarSetDestructionHandler(
     FlutterDesktopPluginRegistrarRef registrar,
     FlutterDesktopOnRegistrarDestroyed callback);
+
+// Returns the texture registrar associated with this registrar.
+FLUTTER_EXPORT FlutterDesktopTextureRegistrarRef
+FlutterDesktopGetTextureRegistrar(FlutterDesktopPluginRegistrarRef registrar);
 
 // Enables input blocking on the given channel.
 //

@@ -126,12 +126,52 @@ void BinaryMessengerImpl::SetMessageHandler(const std::string& channel,
                                      ForwardToHandler, message_handler);
 }
 
-// ===== PluginRegistrar =====
+// Wrapper around a FlutterDesktopTextureRegistrarRef that implements the
+// TextureRegistrar API.
+class TextureRegistrarImpl : public TextureRegistrar {
+ public:
+  explicit TextureRegistrarImpl(
+      FlutterDesktopTextureRegistrarRef texture_registrar_ref)
+      : texture_registrar_ref_(texture_registrar_ref) {}
+
+  virtual ~TextureRegistrarImpl() = default;
+
+  // Prevent copying.
+  TextureRegistrarImpl(TextureRegistrarImpl const&) = delete;
+  TextureRegistrarImpl& operator=(TextureRegistrarImpl const&) = delete;
+
+  virtual int64_t RegisterTexture(Texture* texture) override {
+    FlutterTextureCallback callback =
+        [](size_t width, size_t height, void* user_data) -> const PixelBuffer* {
+      return static_cast<Texture*>(user_data)->CopyPixelBuffer(width, height);
+    };
+    int64_t texture_id = FlutterDesktopRegisterExternalTexture(
+        texture_registrar_ref_, callback, texture);
+    return texture_id;
+  }
+
+  virtual void MarkTextureFrameAvailable(int64_t texture_id) override {
+    FlutterDesktopMarkExternalTextureFrameAvailable(texture_registrar_ref_,
+                                                    texture_id);
+  }
+
+  virtual void UnregisterTexture(int64_t texture_id) override {
+    FlutterDesktopUnregisterExternalTexture(texture_registrar_ref_, texture_id);
+  }
+
+ private:
+  // Handle for interacting with the C API.
+  FlutterDesktopTextureRegistrarRef texture_registrar_ref_;
+};
+
+// PluginRegistrar:
 
 PluginRegistrar::PluginRegistrar(FlutterDesktopPluginRegistrarRef registrar)
     : registrar_(registrar) {
   auto core_messenger = FlutterDesktopRegistrarGetMessenger(registrar_);
   messenger_ = std::make_unique<BinaryMessengerImpl>(core_messenger);
+  auto texture_registrar = FlutterDesktopGetTextureRegistrar(registrar_);
+  textures_ = std::make_unique<TextureRegistrarImpl>(texture_registrar);
 }
 
 PluginRegistrar::~PluginRegistrar() {}

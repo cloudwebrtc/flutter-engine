@@ -88,6 +88,12 @@ class Win32FlutterWindow : public Win32Window {
   bool MakeResourceCurrent();
   bool SwapBuffers();
 
+  bool AcquireExternalTexture(void* user_data,
+                              int64_t texture_id,
+                              size_t width,
+                              size_t height,
+                              FlutterOpenGLTexture* texture);
+
   // Sends a window metrics update to the Flutter engine using current window
   // dimensions in physical
   void SendWindowMetrics();

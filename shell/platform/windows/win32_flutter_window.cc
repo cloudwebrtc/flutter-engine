@@ -49,6 +49,12 @@ void Win32FlutterWindow::SetState(FLUTTER_API_SYMBOL(FlutterEngine) eng) {
   plugin_registrar_->messenger = std::move(messenger);
   plugin_registrar_->window = window_wrapper_.get();
 
+
+  std::unique_ptr<FlutterDesktopTextureRegistrar> textures =
+      std::make_unique<FlutterDesktopTextureRegistrar>();
+  textures->engine = engine_
+  state->plugin_registrar->texture_registrar = std::move(textures);
+
   internal_plugin_registrar_ =
       std::make_unique<flutter::PluginRegistrar>(plugin_registrar_.get());
 
@@ -354,6 +360,17 @@ void Win32FlutterWindow::CreateRenderSurface() {
   if (surface_manager && render_surface == EGL_NO_SURFACE) {
     render_surface = surface_manager->CreateSurface(GetWindowHandle());
   }
+}
+
+bool Win32FlutterWindow::AcquireExternalTexture(void* user_data,
+                                     int64_t texture_id,
+                                     size_t width,
+                                     size_t height,
+                                     FlutterOpenGLTexture* texture) {
+    GLFWwindow* window = reinterpret_cast<GLFWwindow*>(user_data);
+  auto state = GetSavedWindowState(window);
+  return state->plugin_registrar->texture_registrar->textures[texture_id]
+      ->PopulateTextureWithIdentifier(width, height, texture);
 }
 
 void Win32FlutterWindow::DestroyRenderSurface() {

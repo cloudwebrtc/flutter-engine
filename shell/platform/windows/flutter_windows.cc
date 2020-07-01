@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "flutter/shell/platform/common/cpp/client_wrapper/include/flutter/plugin_registrar.h"
+#include "flutter/shell/platform/common/cpp/client_wrapper/include/flutter/texture_registrar.h"
 #include "flutter/shell/platform/common/cpp/incoming_message_dispatcher.h"
 #include "flutter/shell/platform/common/cpp/path_utils.h"
 #include "flutter/shell/platform/embedder/embedder.h"
@@ -105,6 +106,14 @@ static std::unique_ptr<FlutterDesktopEngineState> RunFlutterEngine(
   config.open_gl.make_resource_current = [](void* user_data) -> bool {
     auto host = static_cast<flutter::Win32FlutterWindow*>(user_data);
     return host->MakeResourceCurrent();
+  };
+  config.open_gl.gl_external_texture_frame_callback = [](void* user_data,
+                                     int64_t texture_id,
+                                     size_t width,
+                                     size_t height,
+                                     FlutterOpenGLTexture* texture) -> bool {
+    auto host = static_cast<flutter::Win32FlutterWindow*>(user_data);
+    return host->AcquireExternalTexture(user_data, texture_id, width, height, texture);
   };
 
   // Configure task runner interop.
@@ -319,6 +328,11 @@ FlutterDesktopViewRef FlutterDesktopRegistrarGetView(
   return registrar->window;
 }
 
+FlutterDesktopTextureRegistrarRef FlutterDesktopGetTextureRegistrar(
+    FlutterDesktopPluginRegistrarRef registrar) {
+  return registrar->texture_registrar;
+}
+
 bool FlutterDesktopMessengerSendWithReply(FlutterDesktopMessengerRef messenger,
                                           const char* channel,
                                           const uint8_t* message,
@@ -376,4 +390,36 @@ void FlutterDesktopMessengerSetCallback(FlutterDesktopMessengerRef messenger,
                                         FlutterDesktopMessageCallback callback,
                                         void* user_data) {
   messenger->dispatcher->SetMessageCallback(channel, callback, user_data);
+}
+
+int64_t FlutterDesktopRegisterExternalTexture(
+    FlutterDesktopTextureRegistrarRef texture_registrar,
+    FlutterTextureCallback texture_callback,
+    void* user_data) {
+  auto texture_gl =
+      std::make_unique<flutter::ExternalTextureGL>(texture_callback, user_data);
+  int64_t texture_id = texture_gl->texture_id();
+  texture_registrar->textures[texture_id] = std::move(texture_gl);
+  if (FlutterEngineRegisterExternalTexture(texture_registrar->engine,
+                                           texture_id) == kSuccess) {
+    return texture_id;
+  }
+  return -1;
+}
+
+bool FlutterDesktopUnregisterExternalTexture(
+    FlutterDesktopTextureRegistrarRef texture_registrar,
+    int64_t texture_id) {
+  auto it = texture_registrar->textures.find(texture_id);
+  if (it != texture_registrar->textures.end())
+    texture_registrar->textures.erase(it);
+  return (FlutterEngineUnregisterExternalTexture(texture_registrar->engine,
+                                                 texture_id) == kSuccess);
+}
+
+bool FlutterDesktopMarkExternalTextureFrameAvailable(
+    FlutterDesktopTextureRegistrarRef texture_registrar,
+    int64_t texture_id) {
+  return (FlutterEngineMarkExternalTextureFrameAvailable(
+              texture_registrar->engine, texture_id) == kSuccess);
 }

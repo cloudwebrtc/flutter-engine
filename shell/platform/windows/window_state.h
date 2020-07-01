@@ -69,6 +69,9 @@ struct FlutterDesktopPluginRegistrar {
 
   // Callback to be called on registrar destruction.
   FlutterDesktopOnRegistrarDestroyed destruction_handler;
+
+  // The plugin texture registrar handle given to API clients.
+  std::unique_ptr<FlutterDesktopTextureRegistrar> texture_registrar;
 };
 
 // State associated with the messenger used to communicate with the engine.
@@ -78,6 +81,14 @@ struct FlutterDesktopMessenger {
 
   // The message dispatcher for handling incoming messages.
   flutter::IncomingMessageDispatcher* dispatcher;
+};
+
+
+// State associated with the texture registrar.
+struct FlutterDesktopTextureRegistrar {
+  FLUTTER_API_SYMBOL(FlutterEngine) engine;
+  // The texture registrar managing external texture adapters.
+  std::map<int64_t, std::unique_ptr<flutter::ExternalTextureGL>> textures;
 };
 
 #endif  // FLUTTER_SHELL_PLATFORM_WINDOWS_FLUTTER_WINDOW_STATE_H_
