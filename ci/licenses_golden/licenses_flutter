@@ -822,8 +822,6 @@ FILE: ../../../flutter/shell/platform/common/cpp/client_wrapper/include/flutter/
 FILE: ../../../flutter/shell/platform/common/cpp/client_wrapper/include/flutter/standard_message_codec.h
 FILE: ../../../flutter/shell/platform/common/cpp/client_wrapper/include/flutter/standard_method_codec.h
 FILE: ../../../flutter/shell/platform/common/cpp/client_wrapper/include/flutter/texture_registrar.h
-FILE: ../../../flutter/shell/platform/common/cpp/client_wrapper/json_message_codec.cc
-FILE: ../../../flutter/shell/platform/common/cpp/client_wrapper/json_method_codec.cc
 FILE: ../../../flutter/shell/platform/common/cpp/client_wrapper/method_call_unittests.cc
 FILE: ../../../flutter/shell/platform/common/cpp/client_wrapper/method_channel_unittests.cc
 FILE: ../../../flutter/shell/platform/common/cpp/client_wrapper/method_result_functions_unittests.cc
