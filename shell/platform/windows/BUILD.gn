@@ -43,6 +43,8 @@ source_set("flutter_windows_source") {
     "angle_surface_manager.h",
     "dpi_utils.cc",
     "dpi_utils.h",
+    "external_texture_gl.cc",
+    "external_texture_gl.h",
     "flutter_windows.cc",
     "key_event_handler.cc",
     "key_event_handler.h",

@@ -4,10 +4,12 @@
 
 #include "flutter/shell/platform/glfw/external_texture_gl.h"
 
-#include <glad/glad.h>
-
-// glad/gl.h must be included before GLFW/glfw3.h.
-#include <GLFW/glfw3.h>
+// OpenGL ES and EGL includes
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <EGL/eglplatform.h>
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
 
 #include <iostream>
 
@@ -15,7 +17,6 @@ namespace flutter {
 
 // Just to not declare GLFWwindow and GLuint in the header.
 struct ExternalTextureGLState {
-  GLFWwindow* window;
   GLuint gl_texture;
 };
 
@@ -34,18 +35,6 @@ bool ExternalTextureGL::PopulateTextureWithIdentifier(
     size_t width,
     size_t height,
     FlutterOpenGLTexture* opengl_texture) {
-  // Confirm that the current window context is available.
-  if (!state_->window) {
-    state_->window = glfwGetCurrentContext();
-    if (!state_->window) {
-      std::cerr << "Failed to get window context in current thread."
-                << std::endl;
-      return false;
-    }
-    glfwMakeContextCurrent(state_->window);
-    // Load GL functions.
-    gladLoadGL();
-  }
 
   const PixelBuffer* pixel_buffer =
       texture_callback_(width, height, user_data_);

@@ -8,6 +8,7 @@
 #include "flutter/shell/platform/common/cpp/client_wrapper/include/flutter/plugin_registrar.h"
 #include "flutter/shell/platform/common/cpp/incoming_message_dispatcher.h"
 #include "flutter/shell/platform/embedder/embedder.h"
+#include "flutter/shell/platform/windows/external_texture_gl.h"
 #include "flutter/shell/platform/windows/key_event_handler.h"
 #include "flutter/shell/platform/windows/keyboard_hook_handler.h"
 #include "flutter/shell/platform/windows/platform_handler.h"
@@ -59,6 +60,13 @@ struct FlutterDesktopEngineState {
   UniqueAotDataPtr aot_data;
 };
 
+// State associated with the texture registrar.
+struct FlutterDesktopTextureRegistrar {
+  FLUTTER_API_SYMBOL(FlutterEngine) engine;
+  // The texture registrar managing external texture adapters.
+  std::map<int64_t, std::unique_ptr<flutter::ExternalTextureGL>> textures;
+};
+
 // State associated with the plugin registrar.
 struct FlutterDesktopPluginRegistrar {
   // The plugin messenger handle given to API clients.
@@ -81,14 +89,6 @@ struct FlutterDesktopMessenger {
 
   // The message dispatcher for handling incoming messages.
   flutter::IncomingMessageDispatcher* dispatcher;
-};
-
-
-// State associated with the texture registrar.
-struct FlutterDesktopTextureRegistrar {
-  FLUTTER_API_SYMBOL(FlutterEngine) engine;
-  // The texture registrar managing external texture adapters.
-  std::map<int64_t, std::unique_ptr<flutter::ExternalTextureGL>> textures;
 };
 
 #endif  // FLUTTER_SHELL_PLATFORM_WINDOWS_FLUTTER_WINDOW_STATE_H_
